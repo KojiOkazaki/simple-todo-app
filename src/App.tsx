@@ -1,51 +1,99 @@
 import { useState } from 'react';
-import { Todo } from './types';
+import { Scene, Player, PlayerStats } from './types';
+import { ENEMIES, INITIAL_HP, HP_RECOVERY_BETWEEN_STAGES } from './data/gameData';
+import TitleScreen from './components/TitleScreen';
+import CharacterCreate from './components/CharacterCreate';
+import BattleScreen from './components/BattleScreen';
+import EventScreen from './components/EventScreen';
+import ResultScreen from './components/ResultScreen';
 import './App.css';
 
 function App() {
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [inputValue, setInputValue] = useState('');
+  const [scene, setScene] = useState<Scene>('title');
+  const [player, setPlayer] = useState<Player | null>(null);
+  const [currentStage, setCurrentStage] = useState(0);
+  const [gameWon, setGameWon] = useState(false);
 
-  const handleAddTodo = () => {
-    if (inputValue.trim() === '') {
+  const handleStart = () => {
+    setScene('characterCreate');
+  };
+
+  const handleCharacterComplete = (name: string, stats: PlayerStats) => {
+    setPlayer({
+      name,
+      hp: INITIAL_HP,
+      maxHp: INITIAL_HP,
+      level: 1,
+      stats,
+    });
+    setCurrentStage(0);
+    setScene('battle');
+  };
+
+  const handleBattleEnd = (won: boolean, updatedPlayer: Player) => {
+    setPlayer(updatedPlayer);
+    if (!won) {
+      setGameWon(false);
+      setScene('result');
       return;
     }
 
-    const newTodo: Todo = {
-      id: Date.now().toString(),
-      title: inputValue,
-    };
+    const nextStage = currentStage + 1;
+    if (nextStage >= ENEMIES.length) {
+      setGameWon(true);
+      setScene('result');
+      return;
+    }
 
-    setTodos([...todos, newTodo]);
-    setInputValue('');
+    setCurrentStage(nextStage);
+    setScene('event');
   };
 
-  const handleDeleteTodo = (id: string) => {
-    setTodos(todos.filter(todo => todo.id !== id));
+  const handleEventContinue = (updatedPlayer: Player) => {
+    const recovered = {
+      ...updatedPlayer,
+      hp: Math.min(updatedPlayer.maxHp, updatedPlayer.hp + HP_RECOVERY_BETWEEN_STAGES),
+    };
+    setPlayer(recovered);
+    setScene('battle');
+  };
+
+  const handleRestart = () => {
+    setPlayer(null);
+    setCurrentStage(0);
+    setGameWon(false);
+    setScene('title');
   };
 
   return (
     <div className="app">
-      <h1>Todo App</h1>
+      {scene === 'title' && <TitleScreen onStart={handleStart} />}
 
-      <div className="input-section">
-        <input
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          placeholder="新しいタスクを入力"
+      {scene === 'characterCreate' && (
+        <CharacterCreate onComplete={handleCharacterComplete} />
+      )}
+
+      {scene === 'battle' && player && (
+        <BattleScreen
+          key={currentStage}
+          player={player}
+          enemy={ENEMIES[currentStage]}
+          onBattleEnd={handleBattleEnd}
         />
-        <button onClick={handleAddTodo}>追加</button>
-      </div>
+      )}
 
-      <ul className="todo-list">
-        {todos.map((todo) => (
-          <li key={todo.id} className="todo-item">
-            <span>{todo.title}</span>
-            <button onClick={() => handleDeleteTodo(todo.id)}>削除</button>
-          </li>
-        ))}
-      </ul>
+      {scene === 'event' && player && (
+        <EventScreen player={player} onContinue={handleEventContinue} />
+      )}
+
+      {scene === 'result' && player && (
+        <ResultScreen
+          player={player}
+          won={gameWon}
+          stage={currentStage + 1}
+          onRestart={handleRestart}
+        />
+      )}
     </div>
   );
 }
