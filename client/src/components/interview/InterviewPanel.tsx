@@ -73,6 +73,16 @@ const InterviewPanel: React.FC<{
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Preload browser voices
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+  }, []);
+
   // Auto scroll
   useEffect(() => {
     if (scrollRef.current) {
@@ -80,25 +90,60 @@ const InterviewPanel: React.FC<{
     }
   }, [messages]);
 
-  // Speak text through avatar with TTS
+  // Browser SpeechSynthesis fallback
+  const speakWithBrowser = useCallback((text: string): Promise<void> => {
+    return new Promise((resolve) => {
+      if (!('speechSynthesis' in window)) {
+        resolve();
+        return;
+      }
+      // Cancel any ongoing speech
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      // Try to find a Japanese voice
+      const voices = window.speechSynthesis.getVoices();
+      const jaVoice = voices.find(v => v.lang.startsWith('ja'));
+      if (jaVoice) utterance.voice = jaVoice;
+
+      utterance.onend = () => resolve();
+      utterance.onerror = () => resolve();
+      window.speechSynthesis.speak(utterance);
+    });
+  }, []);
+
+  // Speak text through avatar with TTS, fallback to browser speech
   const speakThroughAvatar = useCallback(async (text: string, speakerId: string) => {
     if (!voiceEnabled) return;
 
+    setInterview(prev => ({ ...prev, isSpeaking: true }));
+
     const avatar = avatarInstancesRef.current[speakerId];
+    let spokeThroughAvatar = false;
+
     if (avatar) {
       try {
-        setInterview(prev => ({ ...prev, isSpeaking: true }));
         await avatar.speakText(text, {
           lipsyncLang: 'ja',
           ttsLang: 'ja-JP',
         });
+        spokeThroughAvatar = true;
       } catch (err) {
-        console.warn('Avatar speak failed:', err);
-      } finally {
-        setInterview(prev => ({ ...prev, isSpeaking: false }));
+        console.warn('Avatar TTS failed, using browser speech:', err);
       }
     }
-  }, [voiceEnabled, avatarInstancesRef]);
+
+    // Fallback: use browser's built-in speech synthesis
+    if (!spokeThroughAvatar) {
+      await speakWithBrowser(text);
+    }
+
+    setInterview(prev => ({ ...prev, isSpeaking: false }));
+  }, [voiceEnabled, avatarInstancesRef, speakWithBrowser]);
 
   // Web Speech API for voice input
   const startListening = useCallback(() => {
