@@ -90,8 +90,15 @@ const InterviewPanel: React.FC<{
     }
   }, [messages]);
 
-  // Browser SpeechSynthesis fallback
-  const speakWithBrowser = useCallback((text: string): Promise<void> => {
+  // Voice profiles for each speaker (differentiate by pitch/rate)
+  const voiceProfiles: Record<string, { pitch: number; rate: number; voiceIndex: number }> = {
+    tanaka: { pitch: 0.85, rate: 0.95, voiceIndex: 0 },   // 低め・落ち着いた声
+    suzuki: { pitch: 1.1, rate: 1.05, voiceIndex: 1 },     // やや高め・明るい声
+    yamada: { pitch: 0.7, rate: 0.9, voiceIndex: 2 },      // 最も低い・威厳ある声
+  };
+
+  // Browser SpeechSynthesis fallback with speaker-specific voice
+  const speakWithBrowser = useCallback((text: string, speakerId?: string): Promise<void> => {
     return new Promise((resolve) => {
       if (!('speechSynthesis' in window)) {
         resolve();
@@ -102,16 +109,54 @@ const InterviewPanel: React.FC<{
 
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'ja-JP';
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
 
-      // Try to find a Japanese voice
+      // Get speaker-specific voice profile
+      const profile = speakerId && voiceProfiles[speakerId]
+        ? voiceProfiles[speakerId]
+        : { pitch: 1.0, rate: 1.0, voiceIndex: 0 };
+
+      utterance.pitch = profile.pitch;
+      utterance.rate = profile.rate;
+
+      // Find Japanese voices and assign different ones to different speakers
       const voices = window.speechSynthesis.getVoices();
-      const jaVoice = voices.find(v => v.lang.startsWith('ja'));
-      if (jaVoice) utterance.voice = jaVoice;
+      const jaVoices = voices.filter(v => v.lang.startsWith('ja'));
+      if (jaVoices.length > 0) {
+        utterance.voice = jaVoices[profile.voiceIndex % jaVoices.length];
+      }
 
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
+      // Safety timeout: resolve after estimated duration (prevents hanging)
+      const estimatedMs = Math.max(text.length * 200, 3000);
+      const timeout = setTimeout(() => {
+        console.warn('[TTS] Speech timeout, forcing resolve');
+        window.speechSynthesis.cancel();
+        resolve();
+      }, estimatedMs);
+
+      utterance.onend = () => { clearTimeout(timeout); resolve(); };
+      utterance.onerror = () => { clearTimeout(timeout); resolve(); };
+
+      // Chrome workaround: resume periodically to prevent speech from stopping
+      const resumeInterval = setInterval(() => {
+        if (!window.speechSynthesis.speaking) {
+          clearInterval(resumeInterval);
+        } else {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
+        }
+      }, 5000);
+
+      utterance.onend = () => {
+        clearTimeout(timeout);
+        clearInterval(resumeInterval);
+        resolve();
+      };
+      utterance.onerror = () => {
+        clearTimeout(timeout);
+        clearInterval(resumeInterval);
+        resolve();
+      };
+
       window.speechSynthesis.speak(utterance);
     });
   }, []);
@@ -122,28 +167,33 @@ const InterviewPanel: React.FC<{
 
     setInterview(prev => ({ ...prev, isSpeaking: true }));
 
-    const avatar = avatarInstancesRef.current[speakerId];
-    let spokeThroughAvatar = false;
+    try {
+      const avatar = avatarInstancesRef.current[speakerId];
+      let spokeThroughAvatar = false;
 
-    if (avatar) {
-      try {
-        await avatar.speakText(text, {
-          lipsyncLang: 'ja',
-          ttsLang: 'ja-JP',
-        });
-        spokeThroughAvatar = true;
-      } catch (err) {
-        console.warn('Avatar TTS failed, using browser speech:', err);
+      if (avatar) {
+        try {
+          // Find the speaker config for the correct voice
+          const speaker = speakers.find(s => s.id === speakerId);
+          await avatar.speakText(text, {
+            lipsyncLang: 'ja',
+            ttsLang: 'ja-JP',
+            ...(speaker?.voice ? { ttsVoice: speaker.voice } : {}),
+          });
+          spokeThroughAvatar = true;
+        } catch (err) {
+          console.warn('Avatar TTS failed, using browser speech:', err);
+        }
       }
-    }
 
-    // Fallback: use browser's built-in speech synthesis
-    if (!spokeThroughAvatar) {
-      await speakWithBrowser(text);
+      // Fallback: use browser's built-in speech synthesis
+      if (!spokeThroughAvatar) {
+        await speakWithBrowser(text, speakerId);
+      }
+    } finally {
+      setInterview(prev => ({ ...prev, isSpeaking: false }));
     }
-
-    setInterview(prev => ({ ...prev, isSpeaking: false }));
-  }, [voiceEnabled, avatarInstancesRef, speakWithBrowser]);
+  }, [voiceEnabled, avatarInstancesRef, speakWithBrowser, speakers]);
 
   // Web Speech API for voice input
   const startListening = useCallback(() => {
