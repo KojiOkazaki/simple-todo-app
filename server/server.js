@@ -1,9 +1,14 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { existsSync } from 'fs';
 import routes from './routes.js';
 
+// Load .env first, then .env.example as fallback (won't override existing values)
 dotenv.config();
+if (existsSync('.env.example')) {
+  dotenv.config({ path: '.env.example' });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3010;
@@ -36,17 +41,37 @@ app.get('/', (_req, res) => {
   });
 });
 
+// Validate API keys (check for placeholder values)
+function isRealKey(key) {
+  if (!key) return false;
+  const placeholders = ['your-', 'xxx', 'test', 'placeholder', 'here'];
+  return !placeholders.some(p => key.toLowerCase().includes(p));
+}
+
 app.listen(PORT, () => {
+  const geminiOk = isRealKey(process.env.GEMINI_API_KEY);
+  const openaiOk = isRealKey(process.env.OPENAI_API_KEY);
+  const elevenOk = isRealKey(process.env.ELEVENLABS_API_KEY);
+
   console.log(`
-╔════════════════════════════════════════════════╗
-║   Interview Simulation Server                  ║
-║   Running on http://localhost:${PORT}             ║
-║                                                ║
-║   Providers:                                   ║
-║   - Gemini: ${process.env.GEMINI_API_KEY ? 'Configured' : 'Not configured'}                     ║
-║   - OpenAI: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Not configured'}                     ║
-║   - TTS:    ${(process.env.TTS_API_KEY || process.env.GEMINI_API_KEY) ? 'Configured' : 'Not configured'}                     ║
-║   - ElevenLabs: ${process.env.ELEVENLABS_API_KEY ? 'Configured' : 'Not configured'}                ║
-╚════════════════════════════════════════════════╝
+╔══════════════════════════════════════════════════╗
+║   Interview Simulation Server                    ║
+║   Running on http://localhost:${PORT}               ║
+║                                                  ║
+║   Providers:                                     ║
+║   - Gemini:     ${geminiOk ? '✅ Configured' : '❌ Not configured'}                  ║
+║   - OpenAI:     ${openaiOk ? '✅ Configured' : '❌ Not configured'}                  ║
+║   - ElevenLabs: ${elevenOk ? '✅ Configured' : '❌ Not configured'}                  ║
+╠══════════════════════════════════════════════════╣`);
+
+  if (!geminiOk && !openaiOk) {
+    console.log(`║   ⚠️  LLMキーなし: 面接AI応答が使えません       ║
+║   server/.env にGEMINI_API_KEYを設定してください ║`);
+  }
+  if (!elevenOk) {
+    console.log(`║   ⚠️  ElevenLabsキーなし: ブラウザ音声使用      ║
+║   高品質音声にはELEVENLABS_API_KEYを設定        ║`);
+  }
+  console.log(`╚══════════════════════════════════════════════════╝
   `);
 });

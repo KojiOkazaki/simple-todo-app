@@ -4,37 +4,22 @@ import API_CONFIG from '../../config';
 
 // Interview phases and questions
 const INTERVIEW_PHASES = [
-  {
-    phase: 'opening',
-    text: '自己紹介をお願いします。',
-    label: '自己紹介',
-  },
-  {
-    phase: 'motivation',
-    text: '当社を志望された理由を教えてください。',
-    label: '志望動機',
-  },
-  {
-    phase: 'strength',
-    text: 'あなたの強みを教えてください。具体的なエピソードも含めてお願いします。',
-    label: '強み',
-  },
-  {
-    phase: 'experience',
-    text: 'これまでの経験で最も困難だったことと、それをどう乗り越えたか教えてください。',
-    label: '困難の克服',
-  },
-  {
-    phase: 'future',
-    text: '入社後にどのようなことに取り組みたいですか？',
-    label: '将来のビジョン',
-  },
-  {
-    phase: 'closing',
-    text: '最後に何か質問はありますか？',
-    label: '逆質問',
-  },
+  { phase: 'opening', text: '自己紹介をお願いします。', label: '自己紹介' },
+  { phase: 'motivation', text: '当社を志望された理由を教えてください。', label: '志望動機' },
+  { phase: 'strength', text: 'あなたの強みを教えてください。具体的なエピソードも含めてお願いします。', label: '強み' },
+  { phase: 'experience', text: 'これまでの経験で最も困難だったことと、それをどう乗り越えたか教えてください。', label: '困難の克服' },
+  { phase: 'future', text: '入社後にどのようなことに取り組みたいですか？', label: '将来のビジョン' },
+  { phase: 'closing', text: '最後に何か質問はありますか？', label: '逆質問' },
 ];
+
+// Voice profiles: different pitch/rate per speaker for browser TTS
+const VOICE_PROFILES: Record<string, { pitch: number; rate: number; voiceIndex: number }> = {
+  tanaka: { pitch: 0.8, rate: 0.9, voiceIndex: 0 },
+  suzuki: { pitch: 1.2, rate: 1.1, voiceIndex: 1 },
+  yamada: { pitch: 0.6, rate: 0.8, voiceIndex: 2 },
+  sato: { pitch: 1.0, rate: 1.0, voiceIndex: 3 },
+  watanabe: { pitch: 1.1, rate: 1.15, voiceIndex: 0 },
+};
 
 interface InterviewState {
   isActive: boolean;
@@ -46,6 +31,15 @@ interface InterviewState {
   isSpeaking: boolean;
   isListening: boolean;
 }
+
+interface ServerStatus {
+  elevenlabs: boolean;
+  gemini: boolean;
+  checked: boolean;
+}
+
+// Helper: wait ms
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const InterviewPanel: React.FC<{
   avatarInstancesRef: React.MutableRefObject<Record<string, any>>;
@@ -69,16 +63,37 @@ const InterviewPanel: React.FC<{
   const [inputText, setInputText] = useState('');
   const [showSetup, setShowSetup] = useState(true);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>({ elevenlabs: false, gemini: false, checked: false });
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const speakingRef = useRef(false); // non-React ref for immediate check
+
+  // Check server health on mount
+  useEffect(() => {
+    fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.HEALTH}`)
+      .then(r => r.json())
+      .then(data => {
+        console.log('[Health] Server status:', data);
+        setServerStatus({
+          elevenlabs: !!data.providers?.elevenlabs,
+          gemini: !!data.providers?.gemini,
+          checked: true,
+        });
+      })
+      .catch(err => {
+        console.warn('[Health] Server not reachable:', err);
+        setServerStatus({ elevenlabs: false, gemini: false, checked: true });
+      });
+  }, []);
 
   // Preload browser voices
   useEffect(() => {
     if ('speechSynthesis' in window) {
       window.speechSynthesis.getVoices();
       window.speechSynthesis.onvoiceschanged = () => {
-        window.speechSynthesis.getVoices();
+        const voices = window.speechSynthesis.getVoices();
+        console.log('[Voices] Loaded', voices.length, 'voices,', voices.filter(v => v.lang.startsWith('ja')).length, 'Japanese');
       };
     }
   }, []);
@@ -90,20 +105,13 @@ const InterviewPanel: React.FC<{
     }
   }, [messages]);
 
-  // Voice profiles for browser fallback (differentiate by pitch/rate)
-  const voiceProfiles: Record<string, { pitch: number; rate: number; voiceIndex: number }> = {
-    tanaka: { pitch: 0.85, rate: 0.95, voiceIndex: 0 },
-    suzuki: { pitch: 1.15, rate: 1.1, voiceIndex: 1 },
-    yamada: { pitch: 0.65, rate: 0.85, voiceIndex: 2 },
-    sato: { pitch: 0.95, rate: 1.0, voiceIndex: 3 },
-    watanabe: { pitch: 1.0, rate: 1.15, voiceIndex: 0 },
-  };
+  // ==================== TTS FUNCTIONS ====================
 
-  // Play audio blob and wait for it to finish
+  // Play audio blob (ElevenLabs MP3)
   const playAudioBlob = useCallback((blob: Blob): Promise<boolean> => {
     return new Promise((resolve) => {
       if (!blob || blob.size < 100) {
-        console.warn('[Audio] Blob is empty or too small:', blob?.size);
+        console.warn('[Audio] Blob too small:', blob?.size);
         resolve(false);
         return;
       }
@@ -119,10 +127,10 @@ const InterviewPanel: React.FC<{
     });
   }, []);
 
-  // ElevenLabs TTS: call server endpoint, return audio blob
+  // ElevenLabs TTS
   const speakWithElevenLabs = useCallback(async (text: string, voiceId: string): Promise<boolean> => {
     try {
-      console.log('[ElevenLabs] Requesting TTS, voiceId:', voiceId, 'text length:', text.length);
+      console.log('[ElevenLabs] POST /api/tts/elevenlabs voiceId=' + voiceId);
       const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.TTS_ELEVENLABS}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,144 +138,149 @@ const InterviewPanel: React.FC<{
       });
 
       if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        console.warn('[ElevenLabs] TTS request failed:', response.status, errText);
+        const errBody = await response.text().catch(() => '');
+        console.warn('[ElevenLabs] HTTP', response.status, errBody);
         return false;
       }
 
-      const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('audio')) {
-        console.warn('[ElevenLabs] Response is not audio:', contentType);
+      const ct = response.headers.get('content-type') || '';
+      if (!ct.includes('audio')) {
+        console.warn('[ElevenLabs] Not audio response:', ct);
         return false;
       }
 
       const audioBlob = await response.blob();
-      console.log('[ElevenLabs] Got audio blob, size:', audioBlob.size);
-      const played = await playAudioBlob(audioBlob);
-      if (!played) {
-        console.warn('[ElevenLabs] Audio playback failed, will use fallback');
-      }
-      return played;
+      console.log('[ElevenLabs] Audio blob:', audioBlob.size, 'bytes');
+      return await playAudioBlob(audioBlob);
     } catch (err) {
-      console.warn('[ElevenLabs] TTS error:', err);
+      console.warn('[ElevenLabs] Error:', err);
       return false;
     }
   }, [playAudioBlob]);
 
-  // Browser SpeechSynthesis fallback with speaker-specific voice
+  // Browser Speech Synthesis - completely rewritten for reliability
   const speakWithBrowser = useCallback((text: string, speakerId?: string): Promise<void> => {
-    return new Promise((resolve) => {
+    return new Promise(async (resolve) => {
       if (!('speechSynthesis' in window)) {
-        console.warn('[Browser TTS] speechSynthesis not available');
+        console.warn('[BrowserTTS] Not available');
         resolve();
         return;
       }
-      // Cancel any ongoing speech and wait briefly for cleanup
+
+      // Fully stop any previous speech
       window.speechSynthesis.cancel();
+      // CRITICAL: wait for cancel to take effect (Chrome bug)
+      await delay(200);
 
-      const profile = speakerId && voiceProfiles[speakerId]
-        ? voiceProfiles[speakerId]
-        : { pitch: 1.0, rate: 1.0, voiceIndex: 0 };
+      const profile = (speakerId && VOICE_PROFILES[speakerId]) || { pitch: 1.0, rate: 1.0, voiceIndex: 0 };
 
-      console.log('[Browser TTS] Speaking as:', speakerId, 'pitch:', profile.pitch, 'rate:', profile.rate);
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      utterance.pitch = profile.pitch;
+      utterance.rate = profile.rate;
+      utterance.volume = 1.0;
 
-      // Delay slightly after cancel to avoid Chrome bug where speak() is ignored
-      setTimeout(() => {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ja-JP';
-        utterance.pitch = profile.pitch;
-        utterance.rate = profile.rate;
-        utterance.volume = 1.0;
+      // Select Japanese voice
+      const voices = window.speechSynthesis.getVoices();
+      const jaVoices = voices.filter(v => v.lang.startsWith('ja'));
+      if (jaVoices.length > 0) {
+        const idx = profile.voiceIndex % jaVoices.length;
+        utterance.voice = jaVoices[idx];
+        console.log('[BrowserTTS]', speakerId, '→ voice:', jaVoices[idx].name, 'pitch:', profile.pitch, 'rate:', profile.rate);
+      } else {
+        console.warn('[BrowserTTS] No Japanese voices found');
+      }
 
-        const voices = window.speechSynthesis.getVoices();
-        const jaVoices = voices.filter(v => v.lang.startsWith('ja'));
-        if (jaVoices.length > 0) {
-          utterance.voice = jaVoices[profile.voiceIndex % jaVoices.length];
-          console.log('[Browser TTS] Using voice:', utterance.voice.name, 'from', jaVoices.length, 'Japanese voices');
-        } else {
-          console.warn('[Browser TTS] No Japanese voices found, using default');
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(safetyTimeout);
+        clearInterval(chromeKeepAlive);
+        resolve();
+      };
+
+      // Safety timeout
+      const safetyTimeout = setTimeout(() => {
+        console.warn('[BrowserTTS] Safety timeout, cancelling');
+        window.speechSynthesis.cancel();
+        finish();
+      }, Math.max(text.length * 300, 8000));
+
+      // Chrome bug: long utterances pause silently. Keep alive every 10s.
+      const chromeKeepAlive = setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.pause();
+          window.speechSynthesis.resume();
         }
+      }, 10000);
 
-        // Safety timeout
-        const estimatedMs = Math.max(text.length * 250, 5000);
-        const timeout = setTimeout(() => {
-          console.warn('[Browser TTS] Timeout reached, cancelling');
-          window.speechSynthesis.cancel();
-          resolve();
-        }, estimatedMs);
+      utterance.onend = finish;
+      utterance.onerror = (e) => {
+        console.warn('[BrowserTTS] Error:', e.error);
+        finish();
+      };
 
-        // Chrome workaround: resume periodically to prevent pausing
-        const resumeInterval = setInterval(() => {
-          if (!window.speechSynthesis.speaking) {
-            clearInterval(resumeInterval);
-          } else {
-            window.speechSynthesis.pause();
-            window.speechSynthesis.resume();
-          }
-        }, 10000);
+      window.speechSynthesis.speak(utterance);
 
-        utterance.onend = () => {
-          clearTimeout(timeout);
-          clearInterval(resumeInterval);
-          resolve();
-        };
-        utterance.onerror = (event) => {
-          console.warn('[Browser TTS] Error:', event.error);
-          clearTimeout(timeout);
-          clearInterval(resumeInterval);
-          resolve();
-        };
-
-        window.speechSynthesis.speak(utterance);
-      }, 100);
+      // Chrome bug: sometimes speak() silently fails. Check after 500ms.
+      setTimeout(() => {
+        if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending && !resolved) {
+          console.warn('[BrowserTTS] Speech not started, retrying...');
+          window.speechSynthesis.speak(utterance);
+        }
+      }, 500);
     });
   }, []);
 
-  // Speak: ElevenLabs → Browser SpeechSynthesis (skip broken TalkingHead)
-  const speakThroughAvatar = useCallback(async (text: string, speakerId: string) => {
+  // Main speak function: ElevenLabs → Browser (no TalkingHead)
+  const speak = useCallback(async (text: string, speakerId: string) => {
     if (!voiceEnabled) return;
 
+    speakingRef.current = true;
     setInterview(prev => ({ ...prev, isSpeaking: true }));
 
     try {
+      // Find speaker to get elevenlabsVoiceId
       const speaker = speakers.find(s => s.id === speakerId);
-      console.log('[TTS] Speaking for:', speakerId, 'elevenlabsVoiceId:', speaker?.elevenlabsVoiceId);
 
-      // 1. Try ElevenLabs TTS (highest quality)
+      // 1. Try ElevenLabs
       if (speaker?.elevenlabsVoiceId) {
-        const success = await speakWithElevenLabs(text, speaker.elevenlabsVoiceId);
-        if (success) {
-          console.log('[TTS] ElevenLabs succeeded for:', speakerId);
+        console.log('[Speak]', speakerId, '→ trying ElevenLabs');
+        const ok = await speakWithElevenLabs(text, speaker.elevenlabsVoiceId);
+        if (ok) {
+          console.log('[Speak]', speakerId, '→ ElevenLabs OK');
           return;
         }
-        console.log('[TTS] ElevenLabs failed, falling back to browser speech');
       }
 
-      // 2. Fallback: browser speech synthesis (skip TalkingHead - causes errors)
-      console.log('[TTS] Using browser speech synthesis for:', speakerId);
+      // 2. Fallback: browser speech
+      console.log('[Speak]', speakerId, '→ browser speech');
       await speakWithBrowser(text, speakerId);
     } finally {
+      speakingRef.current = false;
       setInterview(prev => ({ ...prev, isSpeaking: false }));
+      // Small gap between consecutive speeches
+      await delay(300);
     }
   }, [voiceEnabled, speakWithElevenLabs, speakWithBrowser, speakers]);
 
+  // ==================== INTERVIEW FLOW ====================
+
   // Web Speech API for voice input
   const startListening = useCallback(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
       alert('お使いのブラウザは音声認識に対応していません。Chrome をお使いください。');
       return;
     }
 
-    const recognition = new SpeechRecognition();
+    const recognition = new SR();
     recognition.lang = 'ja-JP';
     recognition.continuous = false;
     recognition.interimResults = true;
 
-    recognition.onstart = () => {
-      setInterview(prev => ({ ...prev, isListening: true }));
-    };
-
+    recognition.onstart = () => setInterview(prev => ({ ...prev, isListening: true }));
     recognition.onresult = (event: any) => {
       let transcript = '';
       for (let i = 0; i < event.results.length; i++) {
@@ -275,11 +288,7 @@ const InterviewPanel: React.FC<{
       }
       setInputText(transcript);
     };
-
-    recognition.onend = () => {
-      setInterview(prev => ({ ...prev, isListening: false }));
-    };
-
+    recognition.onend = () => setInterview(prev => ({ ...prev, isListening: false }));
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
       setInterview(prev => ({ ...prev, isListening: false }));
@@ -290,9 +299,7 @@ const InterviewPanel: React.FC<{
   }, []);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-    }
+    recognitionRef.current?.stop();
   }, []);
 
   // Start interview
@@ -301,32 +308,32 @@ const InterviewPanel: React.FC<{
     setShowSetup(false);
     setInterview(prev => ({ ...prev, isActive: true, currentPhaseIndex: 0 }));
 
-    // Opening message from lead interviewer
     const leadSpeaker = speakers[0];
     if (!leadSpeaker) return;
 
+    // Opening message
+    const openingText = `${interview.candidateName || '候補者'}さん、本日はお越しいただきありがとうございます。これから面接を始めさせていただきます。`;
     const openingMsg: ConversationMessage = {
       id: `msg-${Date.now()}`,
       speaker: leadSpeaker.id,
       speakerName: leadSpeaker.name,
-      content: `${interview.candidateName || '候補者'}さん、本日はお越しいただきありがとうございます。これから面接を始めさせていただきます。`,
+      content: openingText,
       timestamp: Date.now(),
       type: 'agent',
       avatarId: leadSpeaker.id,
     };
     addMessage(openingMsg);
-    await speakThroughAvatar(openingMsg.content, leadSpeaker.id);
+    await speak(openingText, leadSpeaker.id);
 
-    // Ask first question
+    // First question
     await askQuestion(0);
   };
 
-  // Ask a question from the current phase
+  // Ask question
   const askQuestion = async (phaseIndex: number) => {
     const phase = INTERVIEW_PHASES[phaseIndex];
     if (!phase) return;
 
-    // Pick an interviewer (rotate through speakers)
     const speakerIndex = phaseIndex % speakers.length;
     const speaker = speakers[speakerIndex];
     if (!speaker) return;
@@ -341,7 +348,7 @@ const InterviewPanel: React.FC<{
       avatarId: speaker.id,
     };
     addMessage(questionMsg);
-    await speakThroughAvatar(questionMsg.content, speaker.id);
+    await speak(phase.text, speaker.id);
   };
 
   // Submit candidate response
@@ -351,7 +358,6 @@ const InterviewPanel: React.FC<{
     const candidateText = inputText.trim();
     setInputText('');
 
-    // Add candidate message
     const candidateMsg: ConversationMessage = {
       id: `msg-${Date.now()}-c`,
       speaker: 'candidate',
@@ -366,7 +372,6 @@ const InterviewPanel: React.FC<{
 
     try {
       const currentPhase = INTERVIEW_PHASES[interview.currentPhaseIndex];
-      // Pick a speaker to respond
       const responderIndex = interview.currentPhaseIndex % speakers.length;
       const responder = speakers[responderIndex];
       if (!responder) return;
@@ -397,11 +402,11 @@ const InterviewPanel: React.FC<{
         }),
       });
 
-      if (!response.ok) throw new Error('Server error');
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const data = await response.json();
 
-      // Add interviewer reaction
+      // Interviewer reaction
       if (data.reaction) {
         const reactionMsg: ConversationMessage = {
           id: `msg-${Date.now()}-r`,
@@ -413,10 +418,10 @@ const InterviewPanel: React.FC<{
           avatarId: responder.id,
         };
         addMessage(reactionMsg);
-        await speakThroughAvatar(data.reaction, responder.id);
+        await speak(data.reaction, responder.id);
       }
 
-      // Follow-up question or move to next phase
+      // Follow-up or next phase
       if (data.followUp) {
         const followUpMsg: ConversationMessage = {
           id: `msg-${Date.now()}-f`,
@@ -428,27 +433,27 @@ const InterviewPanel: React.FC<{
           avatarId: responder.id,
         };
         addMessage(followUpMsg);
-        await speakThroughAvatar(data.followUp, responder.id);
+        await speak(data.followUp, responder.id);
       } else {
-        // Move to next phase
         const nextPhaseIndex = interview.currentPhaseIndex + 1;
         if (nextPhaseIndex < INTERVIEW_PHASES.length) {
           setInterview(prev => ({ ...prev, currentPhaseIndex: nextPhaseIndex }));
-          // Small delay before next question
-          setTimeout(() => askQuestion(nextPhaseIndex), 1500);
+          await delay(1500);
+          await askQuestion(nextPhaseIndex);
         } else {
           // Interview complete
+          const closingText = `${interview.candidateName || '候補者'}さん、本日はお時間をいただきありがとうございました。結果は後日ご連絡いたします。`;
           const closingMsg: ConversationMessage = {
             id: `msg-${Date.now()}-end`,
             speaker: speakers[0]?.id || 'system',
             speakerName: speakers[0]?.name || 'System',
-            content: `${interview.candidateName || '候補者'}さん、本日はお時間をいただきありがとうございました。結果は後日ご連絡いたします。`,
+            content: closingText,
             timestamp: Date.now(),
             type: 'agent',
             avatarId: speakers[0]?.id,
           };
           addMessage(closingMsg);
-          await speakThroughAvatar(closingMsg.content, speakers[0]?.id || '');
+          await speak(closingText, speakers[0]?.id || '');
           setInterview(prev => ({ ...prev, isActive: false }));
         }
       }
@@ -468,13 +473,28 @@ const InterviewPanel: React.FC<{
     }
   };
 
+  // ==================== RENDER ====================
+
   // Setup screen
   if (showSetup) {
     return (
       <div className="interview-panel">
         <div className="interview-setup">
           <h3>面接シミュレーション</h3>
-          <p className="interview-setup-desc">3Dアバター面接官との模擬面接を開始します</p>
+          <p className="interview-setup-desc">AIアバター面接官との模擬面接を開始します</p>
+
+          {/* Server status */}
+          {serverStatus.checked && (
+            <div style={{ padding: '8px 12px', marginBottom: '12px', borderRadius: '8px', fontSize: '12px', background: '#f0f0f0' }}>
+              <div>Gemini: {serverStatus.gemini ? '✅ 接続済み' : '❌ 未設定'}</div>
+              <div>ElevenLabs: {serverStatus.elevenlabs ? '✅ 高品質音声' : '⚡ ブラウザ音声'}</div>
+              {!serverStatus.gemini && (
+                <div style={{ color: '#c00', marginTop: '4px' }}>
+                  server/.env にGEMINI_API_KEYを設定してください
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="interview-form">
             <label>あなたの名前</label>
@@ -529,8 +549,6 @@ const InterviewPanel: React.FC<{
   }
 
   // Active interview screen
-  const currentPhase = INTERVIEW_PHASES[interview.currentPhaseIndex];
-
   return (
     <div className="interview-panel">
       {/* Phase indicator */}

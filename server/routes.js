@@ -41,14 +41,21 @@ function resolveApiKey(providerName, clientKey) {
   return null;
 }
 
+// Check if key is real (not a placeholder from .env.example)
+function isRealKey(key) {
+  if (!key) return false;
+  const placeholders = ['your-', 'xxx', 'test', 'placeholder', 'here'];
+  return !placeholders.some(p => key.toLowerCase().includes(p));
+}
+
 // Health check
 router.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     providers: {
-      gemini: !!process.env.GEMINI_API_KEY,
-      openai: !!process.env.OPENAI_API_KEY,
-      elevenlabs: !!process.env.ELEVENLABS_API_KEY,
+      gemini: isRealKey(process.env.GEMINI_API_KEY),
+      openai: isRealKey(process.env.OPENAI_API_KEY),
+      elevenlabs: isRealKey(process.env.ELEVENLABS_API_KEY),
     },
     defaultProvider: process.env.DEFAULT_LLM_PROVIDER || 'gemini',
   });
