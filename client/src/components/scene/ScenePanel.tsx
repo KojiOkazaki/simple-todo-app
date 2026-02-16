@@ -99,6 +99,22 @@ const AvatarBox: React.FC<{
       if (avatarEl?.avatarData) {
         removeAvatar(avatarEl.avatarData.id);
       }
+      // Dispose TalkingHead instance if it has a dispose method
+      if (headRef.current) {
+        try { headRef.current.stop?.(); } catch {}
+        try { headRef.current.dispose?.(); } catch {}
+      }
+      // Explicitly lose WebGL context to prevent "Too many active WebGL contexts"
+      if (thContainerRef.current) {
+        const canvas = thContainerRef.current.querySelector('canvas');
+        if (canvas) {
+          const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+          if (gl) {
+            const ext = gl.getExtension('WEBGL_lose_context');
+            if (ext) ext.loseContext();
+          }
+        }
+      }
       // Remove TalkingHead container manually (outside React's control)
       if (thContainerRef.current && wrapperRef.current) {
         try { wrapperRef.current.removeChild(thContainerRef.current); } catch {}

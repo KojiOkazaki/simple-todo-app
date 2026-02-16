@@ -213,7 +213,21 @@ const AvatarInspector: React.FC<{ avatar: AvatarConfig }> = ({ avatar }) => {
       </div>
 
       <div className="inspector-section">
-        <label className="inspector-label">Voice</label>
+        <label className="inspector-label">ElevenLabs Voice ID</label>
+        <input
+          type="text"
+          className="inspector-input"
+          value={avatar.elevenlabsVoiceId || ''}
+          onChange={(e) => handleUpdate('elevenlabsVoiceId', e.target.value)}
+          placeholder="e.g. pNInz6obpgDQGcFmaJgB"
+        />
+        <div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
+          ElevenLabs API の Voice ID を入力
+        </div>
+      </div>
+
+      <div className="inspector-section">
+        <label className="inspector-label">Voice (ブラウザ音声フォールバック)</label>
         <input
           type="text"
           className="inspector-input"

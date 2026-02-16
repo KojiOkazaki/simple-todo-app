@@ -233,6 +233,13 @@ const InterviewPanel: React.FC<{
     });
   }, []);
 
+  // Default ElevenLabs voices for speakers without explicit voiceId
+  const DEFAULT_ELEVENLABS_VOICES = [
+    'pNInz6obpgDQGcFmaJgB', // Adam
+    'ErXwobaYiN019PkySvjV', // Antoni
+    'VR6AewLTigWG4xSOukaG', // Arnold
+  ];
+
   // Main speak function: ElevenLabs → Browser (no TalkingHead)
   const speak = useCallback(async (text: string, speakerId: string) => {
     if (!voiceEnabled) return;
@@ -243,11 +250,16 @@ const InterviewPanel: React.FC<{
     try {
       // Find speaker to get elevenlabsVoiceId
       const speaker = speakers.find(s => s.id === speakerId);
+      const speakerIndex = speakers.findIndex(s => s.id === speakerId);
+
+      // Resolve ElevenLabs voiceId: explicit > default by index
+      const elevenlabsVoiceId = speaker?.elevenlabsVoiceId
+        || DEFAULT_ELEVENLABS_VOICES[Math.max(0, speakerIndex) % DEFAULT_ELEVENLABS_VOICES.length];
 
       // 1. Try ElevenLabs
-      if (speaker?.elevenlabsVoiceId) {
-        console.log('[Speak]', speakerId, '→ trying ElevenLabs');
-        const ok = await speakWithElevenLabs(text, speaker.elevenlabsVoiceId);
+      if (serverStatus.elevenlabs && elevenlabsVoiceId) {
+        console.log('[Speak]', speakerId, '→ trying ElevenLabs voiceId=' + elevenlabsVoiceId);
+        const ok = await speakWithElevenLabs(text, elevenlabsVoiceId);
         if (ok) {
           console.log('[Speak]', speakerId, '→ ElevenLabs OK');
           return;
@@ -263,7 +275,7 @@ const InterviewPanel: React.FC<{
       // Small gap between consecutive speeches
       await delay(300);
     }
-  }, [voiceEnabled, speakWithElevenLabs, speakWithBrowser, speakers]);
+  }, [voiceEnabled, speakWithElevenLabs, speakWithBrowser, speakers, serverStatus.elevenlabs]);
 
   // ==================== INTERVIEW FLOW ====================
 
