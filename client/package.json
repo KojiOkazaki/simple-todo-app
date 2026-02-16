@@ -9,8 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.564.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "react-draggable": "^4.5.0",
+    "recharts": "^3.7.0",
+    "tailwind-merge": "^3.4.1",
+    "three": "^0.182.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",

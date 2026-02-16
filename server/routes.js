@@ -153,6 +153,167 @@ router.post('/interview/closing', async (req, res) => {
   }
 });
 
+// --- DialogLab-compatible endpoints ---
+
+// State for current LLM configuration
+let currentProvider = process.env.DEFAULT_LLM_PROVIDER || 'gemini';
+let currentModel = process.env.DEFAULT_GEMINI_MODEL || 'gemini-2.0-flash';
+let runtimeKeys = {};
+
+// Get available LLM models
+router.get('/llm-models', (_req, res) => {
+  const models = {};
+  if (currentProvider === 'gemini') {
+    models['gemini-2.0-flash'] = 'gemini-2.0-flash';
+    models['gemini-2.0-flash-lite'] = 'gemini-2.0-flash-lite';
+    models['gemini-1.5-pro'] = 'gemini-1.5-pro';
+    models['gemini-1.5-flash'] = 'gemini-1.5-flash';
+  } else {
+    models['gpt-4'] = 'gpt-4';
+    models['gpt-4o'] = 'gpt-4o';
+    models['gpt-4o-mini'] = 'gpt-4o-mini';
+    models['gpt-3.5-turbo'] = 'gpt-3.5-turbo';
+  }
+  res.json({
+    availableModels: models,
+    currentProvider,
+    currentModel,
+  });
+});
+
+// Update model
+router.post('/update-model', (req, res) => {
+  const { provider, model } = req.body;
+  if (provider) currentProvider = provider;
+  if (model) currentModel = model;
+  res.json({ success: true, provider: currentProvider, model: currentModel });
+});
+
+// Set LLM provider
+router.post('/llm-provider', (req, res) => {
+  const { provider } = req.body;
+  if (provider) currentProvider = provider;
+  res.json({ success: true, provider: currentProvider });
+});
+
+// Set API keys at runtime
+router.post('/llm-keys', (req, res) => {
+  const { provider, apiKey } = req.body;
+  if (provider && apiKey) {
+    runtimeKeys[provider] = apiKey;
+    if (provider === 'gemini') process.env.GEMINI_API_KEY = apiKey;
+    if (provider === 'openai') process.env.OPENAI_API_KEY = apiKey;
+  }
+  res.json({ success: true });
+});
+
+// LLM status
+router.get('/llm-status', (_req, res) => {
+  res.json({
+    provider: currentProvider,
+    model: currentModel,
+    geminiConfigured: !!(process.env.GEMINI_API_KEY || runtimeKeys.gemini),
+    openaiConfigured: !!(process.env.OPENAI_API_KEY || runtimeKeys.openai),
+  });
+});
+
+// Start multi-agent conversation (streaming)
+router.post('/start-conversation', async (req, res) => {
+  const { speakers, topic, turns = 5, interactionPattern, turnTakingMode } = req.body;
+
+  const apiKey = resolveApiKey(currentProvider, runtimeKeys[currentProvider]);
+  if (!apiKey) {
+    return res.status(400).json({ error: `No API key for ${currentProvider}` });
+  }
+
+  // Set up SSE-like streaming with newline-delimited JSON
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Transfer-Encoding', 'chunked');
+
+  try {
+    const provider = getProvider(currentProvider, apiKey, currentModel);
+    const conversationHistory = [];
+
+    for (let turn = 0; turn < turns; turn++) {
+      for (const speaker of speakers) {
+        const prompt = `You are "${speaker.name}", a ${speaker.personality || 'neutral'} personality.
+Role: ${speaker.roleDescription || 'Participant'}
+Topic: ${topic || 'General discussion'}
+Interaction style: ${interactionPattern || 'neutral'}
+
+Previous conversation:
+${conversationHistory.slice(-6).map(m => `${m.name}: ${m.content}`).join('\n')}
+
+Respond naturally in character as ${speaker.name}. Keep it concise (1-3 sentences). Use Japanese if the name is Japanese.
+Only output the dialogue text, nothing else.`;
+
+        try {
+          const result = await provider.model.generateContent(prompt);
+          const text = result.response.text().trim();
+
+          const message = {
+            speaker: speaker.name,
+            name: speaker.name,
+            avatarId: speaker.id || speaker.name,
+            content: text,
+            turn: turn + 1,
+          };
+
+          conversationHistory.push(message);
+
+          res.write(JSON.stringify({ type: 'message', message }) + '\n');
+        } catch (err) {
+          console.error(`[conversation] Error for ${speaker.name}:`, err.message);
+        }
+      }
+    }
+
+    res.write(JSON.stringify({ type: 'end' }) + '\n');
+    res.end();
+  } catch (e) {
+    console.error('[start-conversation] Error:', e.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: e.message });
+    } else {
+      res.write(JSON.stringify({ type: 'error', error: e.message }) + '\n');
+      res.end();
+    }
+  }
+});
+
+// TTS endpoint (compatible with TalkingHead)
+router.post('/tts', async (req, res) => {
+  const { text, voice = 'ja-JP-Neural2-B' } = req.body;
+  const ttsApiKey = process.env.TTS_API_KEY;
+  const ttsEndpoint = process.env.TTS_ENDPOINT || 'https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize';
+
+  if (!ttsApiKey) {
+    return res.status(400).json({ error: 'TTS not configured' });
+  }
+
+  try {
+    const ttsResponse = await fetch(`${ttsEndpoint}?key=${ttsApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { text },
+        voice: { languageCode: voice.substring(0, 5), name: voice },
+        audioConfig: { audioEncoding: 'MP3' },
+      }),
+    });
+
+    const data = await ttsResponse.json();
+    if (data.audioContent) {
+      res.json({ audioContent: data.audioContent });
+    } else {
+      res.status(500).json({ error: 'TTS failed', details: data });
+    }
+  } catch (e) {
+    console.error('[TTS] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Text-to-Speech endpoint (for avatar lip sync)
 router.post('/tts/synthesize', async (req, res) => {
   const { text, voice = 'ja-JP-Neural2-B' } = req.body;
