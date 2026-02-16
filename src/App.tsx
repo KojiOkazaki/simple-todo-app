@@ -1,51 +1,57 @@
 import { useState } from 'react';
-import { Todo } from './types';
+import { AppScreen, InterviewConfig, InterviewFeedbackData } from './types';
+import InterviewSetup from './components/InterviewSetup';
+import InterviewSession from './components/InterviewSession';
+import InterviewFeedback from './components/InterviewFeedback';
 import './App.css';
 
 function App() {
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [inputValue, setInputValue] = useState('');
+  const [screen, setScreen] = useState<AppScreen>('setup');
+  const [interviewConfig, setInterviewConfig] = useState<InterviewConfig | null>(null);
+  const [scenarioId, setScenarioId] = useState<string>('');
+  const [feedbackData, setFeedbackData] = useState<InterviewFeedbackData | null>(null);
 
-  const handleAddTodo = () => {
-    if (inputValue.trim() === '') {
-      return;
-    }
-
-    const newTodo: Todo = {
-      id: Date.now().toString(),
-      title: inputValue,
-    };
-
-    setTodos([...todos, newTodo]);
-    setInputValue('');
+  const handleStart = (config: InterviewConfig, selectedScenarioId: string) => {
+    setInterviewConfig(config);
+    setScenarioId(selectedScenarioId);
+    setScreen('session');
   };
 
-  const handleDeleteTodo = (id: string) => {
-    setTodos(todos.filter(todo => todo.id !== id));
+  const handleFinish = (feedback: InterviewFeedbackData) => {
+    setFeedbackData(feedback);
+    setScreen('feedback');
+  };
+
+  const handleRestart = () => {
+    setInterviewConfig(null);
+    setScenarioId('');
+    setFeedbackData(null);
+    setScreen('setup');
+  };
+
+  const handleBack = () => {
+    setScreen('setup');
   };
 
   return (
     <div className="app">
-      <h1>Todo App</h1>
-
-      <div className="input-section">
-        <input
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          placeholder="新しいタスクを入力"
+      {screen === 'setup' && (
+        <InterviewSetup onStart={handleStart} />
+      )}
+      {screen === 'session' && interviewConfig && (
+        <InterviewSession
+          config={interviewConfig}
+          scenarioId={scenarioId}
+          onFinish={handleFinish}
+          onBack={handleBack}
         />
-        <button onClick={handleAddTodo}>追加</button>
-      </div>
-
-      <ul className="todo-list">
-        {todos.map((todo) => (
-          <li key={todo.id} className="todo-item">
-            <span>{todo.title}</span>
-            <button onClick={() => handleDeleteTodo(todo.id)}>削除</button>
-          </li>
-        ))}
-      </ul>
+      )}
+      {screen === 'feedback' && feedbackData && (
+        <InterviewFeedback
+          feedback={feedbackData}
+          onRestart={handleRestart}
+        />
+      )}
     </div>
   );
 }
