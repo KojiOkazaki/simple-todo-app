@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { InterviewConfig, InterviewType, Industry, Difficulty } from '../types';
+import { useState, useEffect } from 'react';
+import { InterviewConfig, InterviewType, Industry, Difficulty, LLMProvider } from '../types';
 import { SCENARIOS } from '../engine/scenarios';
 import { getPersonaById } from '../engine/personas';
+import { api } from '../api/client';
 
 interface InterviewSetupProps {
   onStart: (config: InterviewConfig, scenarioId: string) => void;
@@ -38,7 +39,26 @@ export default function InterviewSetup({ onStart }: InterviewSetupProps) {
   const [targetCompany, setTargetCompany] = useState('');
   const [targetPosition, setTargetPosition] = useState('');
   const [questionCount, setQuestionCount] = useState(5);
-  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [llmProvider, setLlmProvider] = useState<LLMProvider | 'none'>('none');
+  const [apiKey, setApiKey] = useState('');
+  const [enableAvatar, setEnableAvatar] = useState(true);
+  const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [serverProviders, setServerProviders] = useState<{ gemini: boolean; openai: boolean }>({
+    gemini: false,
+    openai: false,
+  });
+
+  useEffect(() => {
+    api.health()
+      .then(health => {
+        setServerStatus('online');
+        setServerProviders(health.providers);
+        if (health.providers.gemini || health.providers.openai) {
+          setLlmProvider(health.providers.gemini ? 'gemini' : 'openai');
+        }
+      })
+      .catch(() => setServerStatus('offline'));
+  }, []);
 
   const filteredScenarios = SCENARIOS.filter(s => s.type === selectedType);
   const selectedScenario = SCENARIOS.find(s => s.id === selectedScenarioId) || filteredScenarios[0];
@@ -61,22 +81,41 @@ export default function InterviewSetup({ onStart }: InterviewSetupProps) {
       targetCompany: targetCompany || '株式会社サンプル',
       targetPosition: targetPosition || '総合職',
       questionCount,
-      geminiApiKey: geminiApiKey.trim() || undefined,
+      enableAvatar,
+      llm: llmProvider !== 'none'
+        ? { provider: llmProvider, apiKey: apiKey.trim() || undefined }
+        : undefined,
     };
     onStart(config, selectedScenarioId);
   };
+
+  const hasServerKey = (provider: LLMProvider) => serverProviders[provider];
+  const needsClientKey = llmProvider !== 'none' && !hasServerKey(llmProvider);
 
   return (
     <div className="setup-container">
       <div className="setup-header">
         <h1>面接シミュレーション</h1>
         <p className="setup-subtitle">
-          就活面接の練習ができるシミュレーションサービスです。
-          AIが面接官の役割を担い、リアルな面接体験を提供します。
+          DialogLab の研究に基づくマルチエージェント会話シミュレーション。
+          3Dアバター面接官がリアルな面接体験を提供します。
         </p>
       </div>
 
       <div className="setup-form">
+        {/* Server Status */}
+        <div className="form-section">
+          <h2>サーバー接続</h2>
+          <div className={`server-status status-${serverStatus}`}>
+            <span className="status-dot"></span>
+            <span>
+              {serverStatus === 'checking' && 'サーバー確認中...'}
+              {serverStatus === 'online' && 'サーバー接続済み (localhost:3010)'}
+              {serverStatus === 'offline' && 'サーバー未接続 - ルールベースモードで動作'}
+            </span>
+          </div>
+        </div>
+
         {/* Interview Type */}
         <div className="form-section">
           <h2>面接タイプ</h2>
@@ -98,7 +137,7 @@ export default function InterviewSetup({ onStart }: InterviewSetupProps) {
 
         {/* Scenario */}
         <div className="form-section">
-          <h2>シナリオ</h2>
+          <h2>シナリオ（シーン管理）</h2>
           <div className="scenario-list">
             {filteredScenarios.map(scenario => (
               <label
@@ -247,44 +286,78 @@ export default function InterviewSetup({ onStart }: InterviewSetupProps) {
           </div>
         </div>
 
-        {/* Gemini API Key */}
+        {/* 3D Avatar Toggle */}
         <div className="form-section">
-          <h2>AI面接官モード（任意）</h2>
-          <p className="api-key-desc">
-            Google Gemini APIキーを入力すると、面接官がAIで動的に応答します。
-            キーなしでも定型パターンで面接を体験できます。
-          </p>
-          <div className="form-field">
-            <label>Gemini API Key</label>
+          <h2>3Dアバター表示</h2>
+          <label className="toggle-option">
             <input
-              type="password"
-              placeholder="AIza..."
-              value={geminiApiKey}
-              onChange={e => setGeminiApiKey(e.target.value)}
+              type="checkbox"
+              checked={enableAvatar}
+              onChange={e => setEnableAvatar(e.target.checked)}
             />
+            <span className="toggle-slider"></span>
+            <span className="toggle-label">
+              {enableAvatar
+                ? 'アバター有効 - 面接官が3Dアバターで表示されます'
+                : 'アバター無効 - テキストチャットのみ'}
+            </span>
+          </label>
+        </div>
+
+        {/* LLM Provider Selection */}
+        <div className="form-section">
+          <h2>AI面接官モード</h2>
+          <p className="api-key-desc">
+            LLMプロバイダーを選択して、面接官がAIで動的に応答するモードを有効にできます。
+            {serverStatus === 'online' && ' サーバー経由で安全にAPI呼び出しを行います。'}
+          </p>
+          <div className="provider-selector">
+            <label className={`provider-option ${llmProvider === 'none' ? 'active' : ''}`}>
+              <input type="radio" name="provider" value="none" checked={llmProvider === 'none'} onChange={() => setLlmProvider('none')} />
+              <span>ルールベース（APIキー不要）</span>
+            </label>
+            <label className={`provider-option ${llmProvider === 'gemini' ? 'active' : ''}`}>
+              <input type="radio" name="provider" value="gemini" checked={llmProvider === 'gemini'} onChange={() => setLlmProvider('gemini')} />
+              <span>Google Gemini{hasServerKey('gemini') && <span className="key-badge">サーバーキー設定済</span>}</span>
+            </label>
+            <label className={`provider-option ${llmProvider === 'openai' ? 'active' : ''}`}>
+              <input type="radio" name="provider" value="openai" checked={llmProvider === 'openai'} onChange={() => setLlmProvider('openai')} />
+              <span>OpenAI GPT{hasServerKey('openai') && <span className="key-badge">サーバーキー設定済</span>}</span>
+            </label>
           </div>
-          {geminiApiKey.trim() && (
-            <div className="api-key-status active">
-              AI面接官モードが有効になります
+
+          {needsClientKey && (
+            <div className="form-field" style={{ marginTop: 12 }}>
+              <label>{llmProvider === 'gemini' ? 'Gemini API Key' : 'OpenAI API Key'}</label>
+              <input
+                type="password"
+                placeholder={llmProvider === 'gemini' ? 'AIza...' : 'sk-...'}
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+              />
             </div>
           )}
-          {!geminiApiKey.trim() && (
-            <div className="api-key-status">
-              ルールベースモード（APIキー不要）
-            </div>
-          )}
+
+          <div className={`api-key-status ${llmProvider !== 'none' ? 'active' : ''}`}>
+            {llmProvider === 'none' && 'ルールベースモード（APIキー不要）'}
+            {llmProvider !== 'none' && hasServerKey(llmProvider) && `${llmProvider.toUpperCase()} AI面接官モード（サーバーキー使用）`}
+            {llmProvider !== 'none' && !hasServerKey(llmProvider) && apiKey.trim() && `${llmProvider.toUpperCase()} AI面接官モード（クライアントキー使用）`}
+            {llmProvider !== 'none' && !hasServerKey(llmProvider) && !apiKey.trim() && 'APIキーを入力してください'}
+          </div>
         </div>
 
         {/* Start Button */}
-        <button className="start-btn" onClick={handleStart}>
-          {geminiApiKey.trim() ? 'AI面接を開始する' : '面接を開始する'}
+        <button
+          className="start-btn"
+          onClick={handleStart}
+          disabled={llmProvider !== 'none' && !hasServerKey(llmProvider) && !apiKey.trim()}
+        >
+          {llmProvider !== 'none' ? `${llmProvider.toUpperCase()} AI面接を開始する` : '面接を開始する'}
         </button>
       </div>
 
       <footer className="setup-footer">
-        <p>
-          DialogLab の研究に基づくマルチエージェント会話シミュレーション
-        </p>
+        <p>DialogLab (UIST 2025) の研究に基づくマルチエージェント対話シミュレーション</p>
       </footer>
     </div>
   );

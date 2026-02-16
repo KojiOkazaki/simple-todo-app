@@ -1,5 +1,16 @@
 // ===== Interview Simulation Service Types =====
-// Inspired by DialogLab's multi-agent conversation architecture
+// DialogLab-inspired multi-agent conversation architecture
+// Supports 3D avatars, multiple LLM providers, and scene management
+
+// --- LLM Provider ---
+
+export type LLMProvider = 'gemini' | 'openai';
+
+export interface LLMConfig {
+  provider: LLMProvider;
+  apiKey?: string;
+  model?: string;
+}
 
 // --- Interview Configuration ---
 
@@ -33,8 +44,10 @@ export interface InterviewerPersona {
   name: string;
   role: string;
   style: 'friendly' | 'strict' | 'neutral' | 'pressure';
-  avatar: string; // emoji avatar
+  avatar: string; // emoji avatar (fallback)
+  avatarModel?: string; // 3D avatar model path (.glb)
   description: string;
+  voiceId?: string; // TTS voice ID
   speechPatterns: {
     greeting: string[];
     transition: string[];
@@ -90,7 +103,8 @@ export interface InterviewConfig {
   targetCompany: string;
   targetPosition: string;
   questionCount: number;
-  geminiApiKey?: string;
+  llm?: LLMConfig;
+  enableAvatar: boolean;
 }
 
 export interface InterviewSession {
@@ -138,7 +152,7 @@ export interface InterviewFeedbackData {
   }[];
 }
 
-// --- Scenario ---
+// --- Scenario / Scene Management ---
 
 export interface InterviewScenario {
   id: string;
@@ -148,6 +162,13 @@ export interface InterviewScenario {
   phases: InterviewPhase[];
   interviewerIds: string[];
   questionCountRange: [number, number];
+  sceneLayout?: SceneLayout;
+}
+
+export interface SceneLayout {
+  background: string;
+  cameraPosition: { x: number; y: number; z: number };
+  avatarPositions: { personaId: string; x: number; y: number; z: number }[];
 }
 
 // --- App State ---

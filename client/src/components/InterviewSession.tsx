@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { InterviewEngine } from '../engine/InterviewEngine';
-import { InterviewConfig, Message, InterviewFeedbackData } from '../types';
+import { InterviewConfig, Message, InterviewFeedbackData, InterviewerPersona } from '../types';
 import { generateOverallFeedback } from '../engine/evaluator';
 import MessageBubble from './MessageBubble';
+import AvatarView from './AvatarView';
 
 interface InterviewSessionProps {
   config: InterviewConfig;
@@ -34,6 +35,7 @@ export default function InterviewSession({
   const [isTyping, setIsTyping] = useState(false);
   const [started, setStarted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -64,9 +66,13 @@ export default function InterviewSession({
     let delay = 800;
     interviewerMsgs.forEach((msg, i) => {
       setTimeout(() => {
+        setSpeakingId(msg.speakerId);
         setMessages(prev => [...prev, msg]);
         if (i === interviewerMsgs.length - 1) {
-          onComplete();
+          setTimeout(() => {
+            setSpeakingId(null);
+            onComplete();
+          }, 600);
         }
       }, delay);
       delay += 600;
@@ -86,13 +92,11 @@ export default function InterviewSession({
     setError(null);
 
     if (engine.isLLMMode()) {
-      // Async LLM mode
-      // Show candidate message immediately
       const candidateMsg: Message = {
         id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         speakerId: 'candidate',
         speakerName: config.candidateName || 'あなた',
-        speakerAvatar: '🧑‍💼',
+        speakerAvatar: '',
         content: response,
         timestamp: Date.now(),
         type: 'candidate',
@@ -116,7 +120,6 @@ export default function InterviewSession({
       } catch (e) {
         console.error('LLM processing error:', e);
         setError('AI応答の生成中にエラーが発生しました。ルールベースで続行します。');
-        // Fallback to sync mode
         const fallbackMessages = engine.processResponse(response);
         const interviewerMsgs = fallbackMessages.filter(m => m.type !== 'candidate');
 
@@ -131,14 +134,11 @@ export default function InterviewSession({
         });
       }
     } else {
-      // Sync rule-based mode
       const responseMessages = engine.processResponse(response);
-
       const candidateMsg = responseMessages.find(m => m.type === 'candidate');
       if (candidateMsg) {
         setMessages(prev => [...prev, candidateMsg]);
       }
-
       const interviewerMsgs = responseMessages.filter(m => m.type !== 'candidate');
 
       showInterviewerMessages(interviewerMsgs, () => {
@@ -164,31 +164,32 @@ export default function InterviewSession({
 
   const progress = engine.getProgress();
   const currentPhase = engine.getCurrentPhase();
+  const interviewers = engine.getSession().interviewers;
 
   return (
-    <div className="session-container">
+    <div className={`session-container ${config.enableAvatar ? 'with-avatar' : ''}`}>
       {/* Header */}
       <div className="session-header">
-        <button className="back-btn" onClick={onBack}>
-          戻る
-        </button>
+        <button className="back-btn" onClick={onBack}>戻る</button>
         <div className="session-info">
           <h2>
             面接シミュレーション
-            {engine.isLLMMode() && <span className="ai-badge">AI</span>}
+            {engine.isLLMMode() && (
+              <span className="ai-badge">{engine.getLLMProvider().toUpperCase()}</span>
+            )}
           </h2>
           <div className="session-meta">
-            <span className="phase-badge">
-              {PHASE_LABELS[currentPhase] || currentPhase}
-            </span>
-            <span className="progress-text">
-              質問 {progress.current + 1} / {progress.total}
-            </span>
+            <span className="phase-badge">{PHASE_LABELS[currentPhase] || currentPhase}</span>
+            <span className="progress-text">質問 {progress.current + 1} / {progress.total}</span>
           </div>
         </div>
         <div className="interviewer-badges">
-          {engine.getSession().interviewers.map(p => (
-            <span key={p.id} className="interviewer-badge" title={`${p.name}（${p.role}）`}>
+          {interviewers.map((p: InterviewerPersona) => (
+            <span
+              key={p.id}
+              className={`interviewer-badge ${speakingId === p.id ? 'speaking' : ''}`}
+              title={`${p.name}（${p.role}）`}
+            >
               {p.avatar}
             </span>
           ))}
@@ -203,29 +204,46 @@ export default function InterviewSession({
         />
       </div>
 
-      {/* Messages */}
-      <div className="messages-container">
-        {messages.map(msg => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-        {isTyping && (
-          <div className="typing-indicator">
-            <div className="typing-dots">
-              <span></span>
-              <span></span>
-              <span></span>
+      <div className="session-body">
+        {/* 3D Avatar Panel */}
+        {config.enableAvatar && (
+          <div className="avatar-panel">
+            <div className="avatar-scene">
+              {interviewers.map((p: InterviewerPersona) => (
+                <AvatarView
+                  key={p.id}
+                  personaId={p.id}
+                  personaName={p.name}
+                  style={p.style}
+                  isSpeaking={speakingId === p.id}
+                  isActive={true}
+                />
+              ))}
             </div>
-            <span className="typing-text">
-              {engine.isLLMMode() ? 'AI面接官が考え中...' : '面接官が入力中...'}
-            </span>
+            <div className="scene-label">面接室</div>
           </div>
         )}
-        {error && (
-          <div className="error-message">
-            {error}
-          </div>
-        )}
-        <div ref={messagesEndRef} />
+
+        {/* Messages */}
+        <div className="messages-container">
+          {messages.map(msg => (
+            <MessageBubble key={msg.id} message={msg} />
+          ))}
+          {isTyping && (
+            <div className="typing-indicator">
+              <div className="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <span className="typing-text">
+                {engine.isLLMMode() ? 'AI面接官が考え中...' : '面接官が入力中...'}
+              </span>
+            </div>
+          )}
+          {error && <div className="error-message">{error}</div>}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Input Area */}

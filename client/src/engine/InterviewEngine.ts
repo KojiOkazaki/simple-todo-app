@@ -6,16 +6,17 @@ import {
   Message,
   InterviewPhase,
   ResponseScore,
+  LLMConfig,
 } from '../types';
 import { getPersonaById, pickRandom } from './personas';
 import { selectQuestionsForInterview } from './questions';
 import { getScenarioById, SCENARIOS } from './scenarios';
 import { evaluateResponse } from './evaluator';
-import { GeminiService } from './gemini';
+import { api } from '../api/client';
 
 // DialogLab-inspired interview engine with turn-taking management
 // Separates "social setup" (who speaks) from "temporal progression" (how conversation flows)
-// Supports both rule-based and LLM-enhanced modes
+// Supports both rule-based and LLM-enhanced modes via server API
 
 export class InterviewEngine {
   private session: InterviewSession;
@@ -23,7 +24,8 @@ export class InterviewEngine {
   private currentQuestionIndex: number;
   private currentFollowUpIndex: number;
   private pendingQuestion: InterviewQuestion | null;
-  private gemini: GeminiService | null = null;
+  private llmConfig: LLMConfig | null = null;
+  private _speakingPersonaId: string | null = null;
 
   constructor(config: InterviewConfig, scenarioId?: string) {
     const scenario = scenarioId
@@ -47,9 +49,9 @@ export class InterviewEngine {
     this.currentFollowUpIndex = 0;
     this.pendingQuestion = null;
 
-    // Initialize Gemini if API key is provided
-    if (config.geminiApiKey) {
-      this.gemini = new GeminiService(config.geminiApiKey);
+    // Use server-side LLM if configured
+    if (config.llm) {
+      this.llmConfig = config.llm;
     }
 
     this.session = {
@@ -71,7 +73,11 @@ export class InterviewEngine {
   }
 
   isLLMMode(): boolean {
-    return this.gemini !== null;
+    return this.llmConfig !== null;
+  }
+
+  getLLMProvider(): string {
+    return this.llmConfig?.provider || 'none';
   }
 
   getSession(): InterviewSession {
@@ -94,6 +100,10 @@ export class InterviewEngine {
     return this.session.turnState.phase;
   }
 
+  getSpeakingPersonaId(): string | null {
+    return this._speakingPersonaId;
+  }
+
   getProgress(): { current: number; total: number } {
     return {
       current: this.currentQuestionIndex,
@@ -108,13 +118,17 @@ export class InterviewEngine {
   // Start the interview - generate opening messages
   startInterview(): Message[] {
     const newMessages: Message[] = [];
+    const providerLabel = this.llmConfig
+      ? ` (${this.llmConfig.provider.toUpperCase()}モード)`
+      : '';
 
     newMessages.push(this.createSystemMessage(
-      `面接を開始します。面接タイプ: ${this.getTypeLabel(this.session.config.type)}${this.gemini ? ' (AI面接官モード)' : ''}`,
+      `面接を開始します。面接タイプ: ${this.getTypeLabel(this.session.config.type)}${providerLabel}`,
     ));
 
     for (const interviewer of this.session.interviewers) {
       const greeting = pickRandom(interviewer.speechPatterns.greeting);
+      this._speakingPersonaId = interviewer.id;
       newMessages.push(this.createInterviewerMessage(interviewer, greeting));
     }
 
@@ -124,11 +138,13 @@ export class InterviewEngine {
       const firstQ = this.questions[0];
       this.pendingQuestion = firstQ;
       const interviewer = this.selectInterviewerForPhase(firstQ.phase);
+      this._speakingPersonaId = interviewer.id;
       newMessages.push(this.createInterviewerMessage(interviewer, firstQ.text));
       this.session.turnState.isWaitingForCandidate = true;
       this.session.turnState.phase = firstQ.phase;
     }
 
+    this._speakingPersonaId = null;
     this.session.messages.push(...newMessages);
     return newMessages;
   }
@@ -153,6 +169,7 @@ export class InterviewEngine {
     switch (nextAction.type) {
       case 'follow_up': {
         const interviewer = this.selectInterviewerForPhase(this.getCurrentPhase());
+        this._speakingPersonaId = interviewer.id;
         const ack = pickRandom(interviewer.speechPatterns.positive);
         newMessages.push(this.createInterviewerMessage(interviewer, ack));
         newMessages.push(this.createInterviewerMessage(interviewer, nextAction.content));
@@ -168,6 +185,7 @@ export class InterviewEngine {
         const nextQ = this.questions[this.currentQuestionIndex];
         this.pendingQuestion = nextQ;
         const interviewer = this.selectInterviewerForPhase(nextQ.phase);
+        this._speakingPersonaId = interviewer.id;
         const transition = pickRandom(interviewer.speechPatterns.transition);
         newMessages.push(this.createInterviewerMessage(interviewer, transition));
         if (nextQ.phase !== this.getCurrentPhase()) {
@@ -180,6 +198,7 @@ export class InterviewEngine {
       }
       case 'probe': {
         const interviewer = this.selectInterviewerForPhase(this.getCurrentPhase());
+        this._speakingPersonaId = interviewer.id;
         const probe = pickRandom(interviewer.speechPatterns.probing);
         newMessages.push(this.createInterviewerMessage(interviewer, probe));
         this.session.turnState.isWaitingForCandidate = true;
@@ -190,13 +209,14 @@ export class InterviewEngine {
       }
     }
 
+    this._speakingPersonaId = null;
     this.session.messages.push(...newMessages);
     return newMessages;
   }
 
-  // Async response processing (LLM-enhanced)
+  // Async response processing (server-side LLM)
   async processResponseAsync(candidateResponse: string): Promise<Message[]> {
-    if (!this.gemini) {
+    if (!this.llmConfig) {
       return this.processResponse(candidateResponse);
     }
 
@@ -209,18 +229,21 @@ export class InterviewEngine {
     this.session.turnState.isWaitingForCandidate = false;
 
     const interviewer = this.selectInterviewerForPhase(this.getCurrentPhase());
+    this._speakingPersonaId = interviewer.id;
 
-    // Use Gemini for evaluation and response generation in parallel
+    // Use server API for evaluation and response generation in parallel
     if (this.pendingQuestion) {
-      const [aiResponse, aiScore] = await Promise.all([
-        this.gemini.generateInterviewerResponse(
+      const [aiResponse, evalResult] = await Promise.all([
+        api.generateResponse(
+          this.llmConfig,
           interviewer,
           this.pendingQuestion,
           candidateResponse,
           this.session.messages,
           this.session.config,
         ),
-        this.gemini.evaluateResponseWithAI(
+        api.evaluateResponse(
+          this.llmConfig,
           this.pendingQuestion,
           candidateResponse,
           this.session.config,
@@ -228,6 +251,7 @@ export class InterviewEngine {
       ]);
 
       // Store evaluation (AI or fallback to rule-based)
+      const aiScore = evalResult.result as ResponseScore | null;
       if (aiScore) {
         this.session.responseScores.push(aiScore);
       } else {
@@ -258,6 +282,7 @@ export class InterviewEngine {
         const nextQ = this.questions[this.currentQuestionIndex];
         this.pendingQuestion = nextQ;
         const nextInterviewer = this.selectInterviewerForPhase(nextQ.phase);
+        this._speakingPersonaId = nextInterviewer.id;
 
         if (nextQ.phase !== this.getCurrentPhase()) {
           this.session.turnState.phase = nextQ.phase;
@@ -277,10 +302,12 @@ export class InterviewEngine {
       const nextQ = this.questions[this.currentQuestionIndex];
       this.pendingQuestion = nextQ;
       const nextInterviewer = this.selectInterviewerForPhase(nextQ.phase);
+      this._speakingPersonaId = nextInterviewer.id;
       newMessages.push(this.createInterviewerMessage(nextInterviewer, nextQ.text));
       this.session.turnState.isWaitingForCandidate = true;
     }
 
+    this._speakingPersonaId = null;
     this.session.messages.push(...newMessages);
     return newMessages;
   }
@@ -292,6 +319,7 @@ export class InterviewEngine {
     if (reverseQ && !this.session.responseScores.some(s => s.questionId === reverseQ.id)) {
       this.pendingQuestion = reverseQ;
       const interviewer = this.session.interviewers[0];
+      this._speakingPersonaId = interviewer.id;
       newMessages.push(this.createInterviewerMessage(interviewer, reverseQ.text));
       this.session.turnState.isWaitingForCandidate = true;
       this.session.messages.push(...newMessages);
@@ -300,6 +328,7 @@ export class InterviewEngine {
 
     for (const interviewer of this.session.interviewers) {
       const closing = pickRandom(interviewer.speechPatterns.closing);
+      this._speakingPersonaId = interviewer.id;
       newMessages.push(this.createInterviewerMessage(interviewer, closing));
     }
 
@@ -309,12 +338,13 @@ export class InterviewEngine {
 
     this.session.isActive = false;
     this.session.turnState.isWaitingForCandidate = false;
+    this._speakingPersonaId = null;
     this.session.messages.push(...newMessages);
     return newMessages;
   }
 
   private async endInterviewAsync(newMessages: Message[]): Promise<Message[]> {
-    if (!this.gemini) return this.endInterview(newMessages);
+    if (!this.llmConfig) return this.endInterview(newMessages);
 
     this.session.turnState.phase = 'closing';
 
@@ -322,20 +352,23 @@ export class InterviewEngine {
     if (reverseQ && !this.session.responseScores.some(s => s.questionId === reverseQ.id)) {
       this.pendingQuestion = reverseQ;
       const interviewer = this.session.interviewers[0];
+      this._speakingPersonaId = interviewer.id;
       newMessages.push(this.createInterviewerMessage(interviewer, reverseQ.text));
       this.session.turnState.isWaitingForCandidate = true;
       this.session.messages.push(...newMessages);
       return newMessages;
     }
 
-    // Generate AI closing messages
+    // Generate AI closing messages via server
     for (const interviewer of this.session.interviewers) {
-      const aiClosing = await this.gemini.generateClosingResponse(
+      this._speakingPersonaId = interviewer.id;
+      const closingResult = await api.generateClosing(
+        this.llmConfig,
         interviewer,
         this.session.config,
         this.session.messages.length,
       );
-      const closing = aiClosing || pickRandom(interviewer.speechPatterns.closing);
+      const closing = closingResult.response || pickRandom(interviewer.speechPatterns.closing);
       newMessages.push(this.createInterviewerMessage(interviewer, closing));
     }
 
@@ -345,6 +378,7 @@ export class InterviewEngine {
 
     this.session.isActive = false;
     this.session.turnState.isWaitingForCandidate = false;
+    this._speakingPersonaId = null;
     this.session.messages.push(...newMessages);
     return newMessages;
   }
@@ -417,7 +451,7 @@ export class InterviewEngine {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       speakerId: 'candidate',
       speakerName: this.session.config.candidateName || 'あなた',
-      speakerAvatar: '🧑‍💼',
+      speakerAvatar: '',
       content,
       timestamp: Date.now(),
       type: 'candidate',
@@ -430,7 +464,7 @@ export class InterviewEngine {
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       speakerId: 'system',
       speakerName: 'システム',
-      speakerAvatar: '🔔',
+      speakerAvatar: '',
       content,
       timestamp: Date.now(),
       type: 'system',

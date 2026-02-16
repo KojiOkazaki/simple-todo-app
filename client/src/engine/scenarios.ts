@@ -1,4 +1,32 @@
-import { InterviewScenario, InterviewPhase } from '../types';
+import { InterviewScenario, InterviewPhase, SceneLayout } from '../types';
+
+// DialogLab-inspired scene layouts for avatar positioning
+const SCENE_LAYOUTS: Record<string, SceneLayout> = {
+  individual: {
+    background: 'office-standard',
+    cameraPosition: { x: 0, y: 1.5, z: 3 },
+    avatarPositions: [
+      { personaId: 'interviewer-0', x: 0, y: 0, z: 0 },
+    ],
+  },
+  panel: {
+    background: 'office-conference',
+    cameraPosition: { x: 0, y: 1.6, z: 4 },
+    avatarPositions: [
+      { personaId: 'interviewer-0', x: -1.2, y: 0, z: 0 },
+      { personaId: 'interviewer-1', x: 0, y: 0, z: 0 },
+      { personaId: 'interviewer-2', x: 1.2, y: 0, z: 0 },
+    ],
+  },
+  group: {
+    background: 'office-large',
+    cameraPosition: { x: 0, y: 1.5, z: 3.5 },
+    avatarPositions: [
+      { personaId: 'interviewer-0', x: -0.6, y: 0, z: 0 },
+      { personaId: 'interviewer-1', x: 0.6, y: 0, z: 0 },
+    ],
+  },
+};
 
 const STANDARD_PHASES: InterviewPhase[] = [
   'introduction',
@@ -20,6 +48,7 @@ export const SCENARIOS: InterviewScenario[] = [
     phases: STANDARD_PHASES,
     interviewerIds: ['tanaka'],
     questionCountRange: [5, 8],
+    sceneLayout: SCENE_LAYOUTS.individual,
   },
   {
     id: 'individual-pressure',
@@ -29,6 +58,7 @@ export const SCENARIOS: InterviewScenario[] = [
     phases: STANDARD_PHASES,
     interviewerIds: ['watanabe'],
     questionCountRange: [4, 6],
+    sceneLayout: SCENE_LAYOUTS.individual,
   },
   {
     id: 'panel-standard',
@@ -38,6 +68,7 @@ export const SCENARIOS: InterviewScenario[] = [
     phases: STANDARD_PHASES,
     interviewerIds: ['tanaka', 'suzuki', 'sato'],
     questionCountRange: [6, 10],
+    sceneLayout: SCENE_LAYOUTS.panel,
   },
   {
     id: 'panel-executive',
@@ -54,6 +85,7 @@ export const SCENARIOS: InterviewScenario[] = [
     ],
     interviewerIds: ['yamada', 'tanaka'],
     questionCountRange: [4, 6],
+    sceneLayout: SCENE_LAYOUTS.group,
   },
   {
     id: 'group-standard',
@@ -70,6 +102,7 @@ export const SCENARIOS: InterviewScenario[] = [
     ],
     interviewerIds: ['tanaka', 'yamada'],
     questionCountRange: [4, 6],
+    sceneLayout: SCENE_LAYOUTS.group,
   },
 ];
 

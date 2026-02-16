@@ -1,57 +1,42 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import {
-  InterviewerPersona,
-  InterviewQuestion,
-  InterviewConfig,
-  Message,
-  ResponseScore,
-  InterviewPhase,
-} from '../types';
 
-const PHASE_NAMES_JA: Record<InterviewPhase, string> = {
-  introduction: '導入',
-  self_introduction: '自己紹介・自己PR',
-  motivation: '志望動機',
-  experience: 'ガクチカ・経験',
-  strength_weakness: '強み・弱み',
-  industry_specific: '業界別質問',
-  reverse_question: '逆質問',
-  closing: '締め',
-};
-
-export class GeminiService {
-  private model;
-
-  constructor(apiKey: string) {
+export class GeminiProvider {
+  constructor(apiKey, model = 'gemini-2.0-flash') {
     const genAI = new GoogleGenerativeAI(apiKey);
-    this.model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    this.model = genAI.getGenerativeModel({ model });
+    this.modelName = model;
   }
 
-  async generateInterviewerResponse(
-    persona: InterviewerPersona,
-    question: InterviewQuestion,
-    candidateResponse: string,
-    conversationHistory: Message[],
-    config: InterviewConfig,
-  ): Promise<{ reaction: string; followUp: string | null }> {
+  get name() {
+    return 'gemini';
+  }
+
+  async generateInterviewerResponse(persona, question, candidateResponse, conversationHistory, config) {
     const historyText = conversationHistory
       .slice(-8)
       .map(m => `${m.speakerName}: ${m.content}`)
       .join('\n');
+
+    const styleDesc = {
+      friendly: '温和で親しみやすい',
+      strict: '厳格で論理的',
+      pressure: '圧迫面接スタイル',
+      neutral: '中立的で冷静',
+    };
 
     const prompt = `あなたは日本企業の面接官「${persona.name}」（${persona.role}）をロールプレイしてください。
 
 ## 面接官のキャラクター
 - 名前: ${persona.name}
 - 役職: ${persona.role}
-- スタイル: ${persona.style === 'friendly' ? '温和で親しみやすい' : persona.style === 'strict' ? '厳格で論理的' : persona.style === 'pressure' ? '圧迫面接スタイル' : '中立的で冷静'}
+- スタイル: ${styleDesc[persona.style] || '中立的で冷静'}
 - 特徴: ${persona.description}
 
 ## 面接状況
 - 候補者名: ${config.candidateName}
 - 志望企業: ${config.targetCompany}
 - 志望職種: ${config.targetPosition}
-- 現在のフェーズ: ${PHASE_NAMES_JA[question.phase]}
+- 現在のフェーズ: ${question.phase}
 
 ## 直前の会話
 ${historyText}
@@ -74,7 +59,6 @@ ${candidateResponse}
     try {
       const result = await this.model.generateContent(prompt);
       const text = result.response.text().trim();
-      // Extract JSON from potential markdown code blocks
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -84,23 +68,19 @@ ${candidateResponse}
         };
       }
     } catch (e) {
-      console.warn('Gemini response generation failed, using fallback:', e);
+      console.warn('[Gemini] Response generation failed:', e.message);
     }
 
     return { reaction: '', followUp: null };
   }
 
-  async evaluateResponseWithAI(
-    question: InterviewQuestion,
-    candidateResponse: string,
-    config: InterviewConfig,
-  ): Promise<ResponseScore | null> {
+  async evaluateResponse(question, candidateResponse, config) {
     const prompt = `あなたは就活面接の評価エキスパートです。候補者の回答を詳しく評価してください。
 
 ## 質問
 ${question.text}
 カテゴリ: ${question.category}
-フェーズ: ${PHASE_NAMES_JA[question.phase]}
+フェーズ: ${question.phase}
 
 ## 候補者の回答
 ${candidateResponse}
@@ -148,18 +128,21 @@ ${candidateResponse}
         };
       }
     } catch (e) {
-      console.warn('Gemini evaluation failed, using fallback:', e);
+      console.warn('[Gemini] Evaluation failed:', e.message);
     }
 
     return null;
   }
 
-  async generateClosingResponse(
-    persona: InterviewerPersona,
-    config: InterviewConfig,
-    messageCount: number,
-  ): Promise<string> {
-    const prompt = `あなたは面接官「${persona.name}」（${persona.role}、${persona.style === 'friendly' ? '温和' : persona.style === 'strict' ? '厳格' : persona.style === 'pressure' ? '圧迫' : '中立'}なスタイル）です。
+  async generateClosingResponse(persona, config, messageCount) {
+    const styleDesc = {
+      friendly: '温和',
+      strict: '厳格',
+      pressure: '圧迫',
+      neutral: '中立',
+    };
+
+    const prompt = `あなたは面接官「${persona.name}」（${persona.role}、${styleDesc[persona.style] || '中立'}なスタイル）です。
 
 面接を終了する挨拶を1〜2文で述べてください。候補者の名前は「${config.candidateName}」です。
 ${messageCount}回のやり取りがありました。面接官のキャラクターに合った自然な日本語で返してください。
@@ -169,8 +152,13 @@ ${messageCount}回のやり取りがありました。面接官のキャラク�
       const result = await this.model.generateContent(prompt);
       return result.response.text().trim();
     } catch (e) {
-      console.warn('Gemini closing failed, using fallback:', e);
+      console.warn('[Gemini] Closing failed:', e.message);
       return '';
     }
+  }
+
+  async generateTTSSpeech(text, voice = 'ja-JP-Neural2-B') {
+    // TTS is handled separately via Google Cloud TTS API
+    return null;
   }
 }
