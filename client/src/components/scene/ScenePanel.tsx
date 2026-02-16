@@ -10,30 +10,40 @@ const AvatarBox: React.FC<{
   registerAvatar: (id: string, instance: any) => void;
   removeAvatar: (id: string) => void;
 }> = ({ box, avatarInstancesRef, registerAvatar, removeAvatar }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const thContainerRef = useRef<HTMLDivElement | null>(null);
+  const headRef = useRef<any>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current || box.elements.length === 0) return;
+    if (!wrapperRef.current || box.elements.length === 0) return;
 
     const avatarElement = box.elements.find(e => e.elementType === 'avatar');
     if (!avatarElement?.avatarData) return;
 
+    let cancelled = false;
+
     const initAvatar = async () => {
       try {
-        // Dynamically import TalkingHead
         const { TalkingHead } = await import('../../libs/talkinghead.mjs');
 
-        const container = containerRef.current;
-        if (!container) return;
+        if (cancelled || !wrapperRef.current) return;
 
-        // Clear existing content
-        container.innerHTML = '';
+        // Create a standalone DOM element for TalkingHead (outside React's virtual DOM)
+        if (thContainerRef.current && wrapperRef.current.contains(thContainerRef.current)) {
+          wrapperRef.current.removeChild(thContainerRef.current);
+        }
+        const thDiv = document.createElement('div');
+        thDiv.style.width = '100%';
+        thDiv.style.height = '100%';
+        thContainerRef.current = thDiv;
+        wrapperRef.current.appendChild(thDiv);
 
-        const head = new TalkingHead(container, {
+        const head = new TalkingHead(thDiv, {
           ttsEndpoint: '/api/tts',
           lipsyncLang: avatarElement.avatarData!.settings?.lipsyncLang || 'en',
+          lipsyncModules: ['en'],
         });
 
         const avatarUrl = avatarElement.avatarData!.settings?.url || '/assets/male-avatar1.glb';
@@ -48,11 +58,12 @@ const AvatarBox: React.FC<{
         }, (ev: any) => {
           if (ev.lengthComputable) {
             const pct = Math.round((ev.loaded / ev.total) * 100);
-            console.log(`Loading avatar: ${pct}%`);
+            if (pct % 25 === 0) console.log(`Loading avatar: ${pct}%`);
           }
         });
 
-        // Set camera view
+        if (cancelled) return;
+
         if (avatarElement.avatarData!.settings?.cameraView) {
           head.setView(
             avatarElement.avatarData!.settings.cameraView,
@@ -61,18 +72,19 @@ const AvatarBox: React.FC<{
           );
         }
 
-        // Style the canvas
-        const canvas = container.querySelector('canvas');
+        const canvas = thDiv.querySelector('canvas');
         if (canvas) {
           canvas.style.width = '100%';
           canvas.style.height = '100%';
           canvas.style.borderRadius = '8px';
         }
 
+        headRef.current = head;
         registerAvatar(avatarElement.avatarData!.id, head);
         setLoaded(true);
         setError(null);
       } catch (err: any) {
+        if (cancelled) return;
         console.error('Failed to load TalkingHead avatar:', err);
         setError(err.message || 'Avatar load failed');
         setLoaded(false);
@@ -82,10 +94,17 @@ const AvatarBox: React.FC<{
     initAvatar();
 
     return () => {
+      cancelled = true;
       const avatarEl = box.elements.find(e => e.elementType === 'avatar');
       if (avatarEl?.avatarData) {
         removeAvatar(avatarEl.avatarData.id);
       }
+      // Remove TalkingHead container manually (outside React's control)
+      if (thContainerRef.current && wrapperRef.current) {
+        try { wrapperRef.current.removeChild(thContainerRef.current); } catch {}
+        thContainerRef.current = null;
+      }
+      headRef.current = null;
     };
   }, [box.elements]);
 
@@ -101,7 +120,7 @@ const AvatarBox: React.FC<{
         height: `${box.height}%`,
       }}
     >
-      <div ref={containerRef} className="avatar-3d-container">
+      <div ref={wrapperRef} className="avatar-3d-container">
         {!loaded && !error && (
           <div className="avatar-loading">
             <div className="loading-spinner" />

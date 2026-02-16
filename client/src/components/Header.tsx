@@ -8,6 +8,8 @@ const Header: React.FC = () => {
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const fetchedRef = useRef(false);
+
   const fetchModels = async () => {
     try {
       const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.LLM_MODELS}`);
@@ -17,12 +19,17 @@ const Header: React.FC = () => {
         if (data.currentProvider) setCurrentProvider(data.currentProvider);
         if (data.currentModel) setCurrentModel(data.currentModel);
       }
-    } catch (err) {
-      console.error('Error fetching models:', err);
+    } catch {
+      // Server not running - use defaults from store
     }
   };
 
-  useEffect(() => { fetchModels(); }, []);
+  useEffect(() => {
+    if (!fetchedRef.current) {
+      fetchedRef.current = true;
+      fetchModels();
+    }
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
