@@ -234,12 +234,8 @@ const AvatarInspector: React.FC<{ avatar: AvatarConfig }> = ({ avatar }) => {
           <option value="/assets/male-avatar3.glb">Male Avatar 3</option>
           <option value="/assets/male-avatar4.glb">Male Avatar 4</option>
           <option value="/assets/male-avatar5.glb">Male Avatar 5</option>
-          <option value="/assets/male-avatar6.glb">Male Avatar 6</option>
           <option value="/assets/female-avatar1.glb">Female Avatar 1</option>
           <option value="/assets/female-avatar2.glb">Female Avatar 2</option>
-          <option value="/assets/female-avatar3.glb">Female Avatar 3</option>
-          <option value="/assets/female-avatar4.glb">Female Avatar 4</option>
-          <option value="/assets/female-avatar5.glb">Female Avatar 5</option>
         </select>
       </div>
     </div>
@@ -269,18 +265,20 @@ const Inspector: React.FC = () => {
 
   const isNode = 'type' in selectedItem && (selectedItem as SnippetNode).type === 'snippet';
   const isConnection = 'from' in selectedItem && 'to' in selectedItem;
+  const isAvatar = 'gender' in selectedItem && 'voice' in selectedItem && !isNode && !isConnection;
 
   return (
     <div className="inspector-panel">
       <div className="inspector-header">
         <span>
-          {isNode ? 'Snippet Inspector' : isConnection ? 'Connection' : 'Inspector'}
+          {isNode ? 'Snippet Inspector' : isConnection ? 'Connection' : isAvatar ? 'Avatar Inspector' : 'Inspector'}
         </span>
         <button className="inspector-close-btn" onClick={closeInspector}>&times;</button>
       </div>
 
       {isNode && <SnippetInspector node={selectedItem as SnippetNode} />}
       {isConnection && <ConnectionInspector connection={selectedItem as Connection} />}
+      {isAvatar && <AvatarInspector avatar={selectedItem as unknown as AvatarConfig} />}
     </div>
   );
 };

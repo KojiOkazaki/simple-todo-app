@@ -1,8 +1,5 @@
-const isProduction = window.location.hostname !== 'localhost' &&
-                    window.location.hostname !== '127.0.0.1';
-
 export const API_CONFIG = {
-  BASE_URL: isProduction ? '' : 'http://localhost:3010',
+  BASE_URL: '',  // Use Vite proxy in dev, same origin in production
   ENDPOINTS: {
     START_CONVERSATION: '/api/start-conversation',
     HUMAN_INPUT: '/api/human-input',
