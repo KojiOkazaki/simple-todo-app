@@ -172,6 +172,7 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
     name: '田中 部長',
     gender: 'male',
     voice: 'ja-JP-Standard-C',
+    elevenlabsVoiceId: 'pNInz6obpgDQGcFmaJgB', // Adam - 落ち着いた男性の声
     personality: 'neutral',
     roleDescription: '人事部長。経験豊富で冷静に本質を見抜く。',
     url: '/assets/male-avatar1.glb',
@@ -190,6 +191,7 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
     name: '鈴木 課長',
     gender: 'male',
     voice: 'ja-JP-Standard-D',
+    elevenlabsVoiceId: 'ErXwobaYiN019PkySvjV', // Antoni - 明るい男性の声
     personality: 'friendly',
     roleDescription: '現場マネージャー。親しみやすく実務経験を重視。',
     url: '/assets/male-avatar3.glb',
@@ -208,6 +210,7 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
     name: '山田 取締役',
     gender: 'male',
     voice: 'ja-JP-Standard-B',
+    elevenlabsVoiceId: 'VR6AewLTigWG4xSOukaG', // Arnold - 威厳のある男性の声
     personality: 'strict',
     roleDescription: '役員。厳しく論理性と高い志を求める。',
     url: '/assets/male-avatar5.glb',

@@ -46,6 +46,7 @@ app.listen(PORT, () => {
 ║   - Gemini: ${process.env.GEMINI_API_KEY ? 'Configured' : 'Not configured'}                     ║
 ║   - OpenAI: ${process.env.OPENAI_API_KEY ? 'Configured' : 'Not configured'}                     ║
 ║   - TTS:    ${(process.env.TTS_API_KEY || process.env.GEMINI_API_KEY) ? 'Configured' : 'Not configured'}                     ║
+║   - ElevenLabs: ${process.env.ELEVENLABS_API_KEY ? 'Configured' : 'Not configured'}                ║
 ╚════════════════════════════════════════════════╝
   `);
 });

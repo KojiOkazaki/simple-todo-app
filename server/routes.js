@@ -48,6 +48,7 @@ router.get('/health', (_req, res) => {
     providers: {
       gemini: !!process.env.GEMINI_API_KEY,
       openai: !!process.env.OPENAI_API_KEY,
+      elevenlabs: !!process.env.ELEVENLABS_API_KEY,
     },
     defaultProvider: process.env.DEFAULT_LLM_PROVIDER || 'gemini',
   });
@@ -203,6 +204,7 @@ router.post('/llm-keys', (req, res) => {
     runtimeKeys[provider] = apiKey;
     if (provider === 'gemini') process.env.GEMINI_API_KEY = apiKey;
     if (provider === 'openai') process.env.OPENAI_API_KEY = apiKey;
+    if (provider === 'elevenlabs') process.env.ELEVENLABS_API_KEY = apiKey;
   }
   res.json({ success: true });
 });
@@ -278,6 +280,52 @@ Only output the dialogue text, nothing else.`;
       res.write(JSON.stringify({ type: 'error', error: e.message }) + '\n');
       res.end();
     }
+  }
+});
+
+// ElevenLabs TTS endpoint
+router.post('/tts/elevenlabs', async (req, res) => {
+  const { text, voiceId, modelId = 'eleven_multilingual_v2' } = req.body;
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+
+  if (!apiKey) {
+    return res.status(400).json({ error: 'ELEVENLABS_API_KEY not configured' });
+  }
+  if (!text || !voiceId) {
+    return res.status(400).json({ error: 'text and voiceId are required' });
+  }
+
+  try {
+    const ttsResponse = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+      },
+      body: JSON.stringify({
+        text,
+        model_id: modelId,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+        },
+      }),
+    });
+
+    if (!ttsResponse.ok) {
+      const errorBody = await ttsResponse.text();
+      console.error('[ElevenLabs TTS] Error:', ttsResponse.status, errorBody);
+      return res.status(ttsResponse.status).json({ error: `ElevenLabs API error: ${ttsResponse.status}`, details: errorBody });
+    }
+
+    const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
+    res.set('Content-Type', 'audio/mpeg');
+    res.set('Content-Length', audioBuffer.length.toString());
+    res.send(audioBuffer);
+  } catch (e) {
+    console.error('[ElevenLabs TTS] Error:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

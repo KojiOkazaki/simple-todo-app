@@ -17,6 +17,7 @@ export const API_CONFIG = {
     INTERVIEW_RESPOND: '/api/interview/respond',
     INTERVIEW_EVALUATE: '/api/interview/evaluate',
     INTERVIEW_CLOSING: '/api/interview/closing',
+    TTS_ELEVENLABS: '/api/tts/elevenlabs',
   }
 };
 
