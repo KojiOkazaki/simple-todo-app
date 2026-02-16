@@ -90,6 +90,7 @@ export interface InterviewConfig {
   targetCompany: string;
   targetPosition: string;
   questionCount: number;
+  geminiApiKey?: string;
 }
 
 export interface InterviewSession {

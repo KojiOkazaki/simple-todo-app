@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { InterviewEngine } from '../engine/InterviewEngine';
 import { InterviewConfig, Message, InterviewFeedbackData } from '../types';
 import { generateOverallFeedback } from '../engine/evaluator';
@@ -33,21 +33,21 @@ export default function InterviewSession({
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [started, setStarted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
   useEffect(() => {
     if (!started) {
       setStarted(true);
-      // Start interview with a typing delay
       setIsTyping(true);
       setTimeout(() => {
         const openingMessages = engine.startInterview();
@@ -57,48 +57,103 @@ export default function InterviewSession({
     }
   }, [started, engine]);
 
-  const handleSend = () => {
-    if (inputValue.trim() === '' || !engine.isWaitingForCandidate() || isTyping) return;
-
-    const response = inputValue.trim();
-    setInputValue('');
-
-    // Simulate typing delay for interviewer response
-    setIsTyping(true);
-
-    // Process response with a delay for realism
-    const responseMessages = engine.processResponse(response);
-
-    // Show candidate message immediately
-    const candidateMsg = responseMessages.find(m => m.type === 'candidate');
-    if (candidateMsg) {
-      setMessages(prev => [...prev, candidateMsg]);
-    }
-
-    // Show interviewer messages with staggered delay
-    const interviewerMsgs = responseMessages.filter(m => m.type !== 'candidate');
+  const showInterviewerMessages = useCallback((
+    interviewerMsgs: Message[],
+    onComplete: () => void,
+  ) => {
     let delay = 800;
     interviewerMsgs.forEach((msg, i) => {
       setTimeout(() => {
         setMessages(prev => [...prev, msg]);
         if (i === interviewerMsgs.length - 1) {
-          setIsTyping(false);
+          onComplete();
+        }
+      }, delay);
+      delay += 600;
+    });
 
-          // Check if interview ended
+    if (interviewerMsgs.length === 0) {
+      onComplete();
+    }
+  }, []);
+
+  const handleSend = useCallback(async () => {
+    if (inputValue.trim() === '' || !engine.isWaitingForCandidate() || isTyping) return;
+
+    const response = inputValue.trim();
+    setInputValue('');
+    setIsTyping(true);
+    setError(null);
+
+    if (engine.isLLMMode()) {
+      // Async LLM mode
+      // Show candidate message immediately
+      const candidateMsg: Message = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        speakerId: 'candidate',
+        speakerName: config.candidateName || 'あなた',
+        speakerAvatar: '🧑‍💼',
+        content: response,
+        timestamp: Date.now(),
+        type: 'candidate',
+        phase: engine.getCurrentPhase(),
+      };
+      setMessages(prev => [...prev, candidateMsg]);
+
+      try {
+        const responseMessages = await engine.processResponseAsync(response);
+        const interviewerMsgs = responseMessages.filter(m => m.type !== 'candidate');
+
+        showInterviewerMessages(interviewerMsgs, () => {
+          setIsTyping(false);
           if (!engine.isActive()) {
             setTimeout(() => {
               const feedback = generateOverallFeedback(engine.getScores());
               onFinish(feedback);
             }, 1500);
           }
-        }
-      }, delay);
-      delay += 600;
-    });
+        });
+      } catch (e) {
+        console.error('LLM processing error:', e);
+        setError('AI応答の生成中にエラーが発生しました。ルールベースで続行します。');
+        // Fallback to sync mode
+        const fallbackMessages = engine.processResponse(response);
+        const interviewerMsgs = fallbackMessages.filter(m => m.type !== 'candidate');
 
-    // Focus back on textarea
+        showInterviewerMessages(interviewerMsgs, () => {
+          setIsTyping(false);
+          if (!engine.isActive()) {
+            setTimeout(() => {
+              const feedback = generateOverallFeedback(engine.getScores());
+              onFinish(feedback);
+            }, 1500);
+          }
+        });
+      }
+    } else {
+      // Sync rule-based mode
+      const responseMessages = engine.processResponse(response);
+
+      const candidateMsg = responseMessages.find(m => m.type === 'candidate');
+      if (candidateMsg) {
+        setMessages(prev => [...prev, candidateMsg]);
+      }
+
+      const interviewerMsgs = responseMessages.filter(m => m.type !== 'candidate');
+
+      showInterviewerMessages(interviewerMsgs, () => {
+        setIsTyping(false);
+        if (!engine.isActive()) {
+          setTimeout(() => {
+            const feedback = generateOverallFeedback(engine.getScores());
+            onFinish(feedback);
+          }, 1500);
+        }
+      });
+    }
+
     textareaRef.current?.focus();
-  };
+  }, [inputValue, isTyping, engine, config, onFinish, showInterviewerMessages]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -118,7 +173,10 @@ export default function InterviewSession({
           戻る
         </button>
         <div className="session-info">
-          <h2>面接シミュレーション</h2>
+          <h2>
+            面接シミュレーション
+            {engine.isLLMMode() && <span className="ai-badge">AI</span>}
+          </h2>
           <div className="session-meta">
             <span className="phase-badge">
               {PHASE_LABELS[currentPhase] || currentPhase}
@@ -157,7 +215,14 @@ export default function InterviewSession({
               <span></span>
               <span></span>
             </div>
-            <span className="typing-text">面接官が入力中...</span>
+            <span className="typing-text">
+              {engine.isLLMMode() ? 'AI面接官が考え中...' : '面接官が入力中...'}
+            </span>
+          </div>
+        )}
+        {error && (
+          <div className="error-message">
+            {error}
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -187,7 +252,7 @@ export default function InterviewSession({
         ) : (
           <div className="waiting-message">
             {engine.isActive()
-              ? '面接官の発言をお待ちください...'
+              ? (engine.isLLMMode() ? 'AI面接官が応答を生成中...' : '面接官の発言をお待ちください...')
               : '面接が終了しました。フィードバックを準備しています...'}
           </div>
         )}

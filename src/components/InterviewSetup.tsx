@@ -38,6 +38,7 @@ export default function InterviewSetup({ onStart }: InterviewSetupProps) {
   const [targetCompany, setTargetCompany] = useState('');
   const [targetPosition, setTargetPosition] = useState('');
   const [questionCount, setQuestionCount] = useState(5);
+  const [geminiApiKey, setGeminiApiKey] = useState('');
 
   const filteredScenarios = SCENARIOS.filter(s => s.type === selectedType);
   const selectedScenario = SCENARIOS.find(s => s.id === selectedScenarioId) || filteredScenarios[0];
@@ -60,6 +61,7 @@ export default function InterviewSetup({ onStart }: InterviewSetupProps) {
       targetCompany: targetCompany || '株式会社サンプル',
       targetPosition: targetPosition || '総合職',
       questionCount,
+      geminiApiKey: geminiApiKey.trim() || undefined,
     };
     onStart(config, selectedScenarioId);
   };
@@ -245,9 +247,37 @@ export default function InterviewSetup({ onStart }: InterviewSetupProps) {
           </div>
         </div>
 
+        {/* Gemini API Key */}
+        <div className="form-section">
+          <h2>AI面接官モード（任意）</h2>
+          <p className="api-key-desc">
+            Google Gemini APIキーを入力すると、面接官がAIで動的に応答します。
+            キーなしでも定型パターンで面接を体験できます。
+          </p>
+          <div className="form-field">
+            <label>Gemini API Key</label>
+            <input
+              type="password"
+              placeholder="AIza..."
+              value={geminiApiKey}
+              onChange={e => setGeminiApiKey(e.target.value)}
+            />
+          </div>
+          {geminiApiKey.trim() && (
+            <div className="api-key-status active">
+              AI面接官モードが有効になります
+            </div>
+          )}
+          {!geminiApiKey.trim() && (
+            <div className="api-key-status">
+              ルールベースモード（APIキー不要）
+            </div>
+          )}
+        </div>
+
         {/* Start Button */}
         <button className="start-btn" onClick={handleStart}>
-          面接を開始する
+          {geminiApiKey.trim() ? 'AI面接を開始する' : '面接を開始する'}
         </button>
       </div>
 
