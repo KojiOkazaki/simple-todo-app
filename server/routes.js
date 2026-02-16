@@ -284,8 +284,8 @@ Only output the dialogue text, nothing else.`;
 // TTS endpoint (compatible with TalkingHead)
 router.post('/tts', async (req, res) => {
   const { text, voice = 'ja-JP-Neural2-B' } = req.body;
-  const ttsApiKey = process.env.TTS_API_KEY;
-  const ttsEndpoint = process.env.TTS_ENDPOINT || 'https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize';
+  const ttsApiKey = process.env.TTS_API_KEY || process.env.GEMINI_API_KEY;
+  const ttsEndpoint = process.env.TTS_ENDPOINT || 'https://texttospeech.googleapis.com/v1/text:synthesize';
 
   if (!ttsApiKey) {
     return res.status(400).json({ error: 'TTS not configured' });
@@ -318,8 +318,8 @@ router.post('/tts', async (req, res) => {
 router.post('/tts/synthesize', async (req, res) => {
   const { text, voice = 'ja-JP-Neural2-B' } = req.body;
 
-  const ttsApiKey = process.env.TTS_API_KEY;
-  const ttsEndpoint = process.env.TTS_ENDPOINT || 'https://eu-texttospeech.googleapis.com/v1beta1/text:synthesize';
+  const ttsApiKey = process.env.TTS_API_KEY || process.env.GEMINI_API_KEY;
+  const ttsEndpoint = process.env.TTS_ENDPOINT || 'https://texttospeech.googleapis.com/v1/text:synthesize';
 
   if (!ttsApiKey) {
     return res.status(400).json({ error: 'TTS API key not configured on server.' });
