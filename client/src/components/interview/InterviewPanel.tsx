@@ -128,13 +128,25 @@ const InterviewPanel: React.FC<{
   }, []);
 
   // ElevenLabs TTS
-  const speakWithElevenLabs = useCallback(async (text: string, voiceId: string): Promise<boolean> => {
+  const speakWithElevenLabs = useCallback(async (
+    text: string,
+    voiceId: string,
+    opts?: { languageCode?: string; stability?: number; similarityBoost?: number },
+  ): Promise<boolean> => {
     try {
-      console.log('[ElevenLabs] POST /api/tts/elevenlabs voiceId=' + voiceId);
+      console.log('[ElevenLabs] POST /api/tts/elevenlabs voiceId=' + voiceId, 'lang=' + (opts?.languageCode || 'auto'));
       const response = await fetch(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.TTS_ELEVENLABS}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voiceId }),
+        body: JSON.stringify({
+          text,
+          voiceId,
+          languageCode: opts?.languageCode,
+          voiceSettings: opts ? {
+            stability: opts.stability,
+            similarityBoost: opts.similarityBoost,
+          } : undefined,
+        }),
       });
 
       if (!response.ok) {
@@ -233,11 +245,11 @@ const InterviewPanel: React.FC<{
     });
   }, []);
 
-  // Default ElevenLabs voices for speakers without explicit voiceId
+  // Default ElevenLabs voices (multilingual, good Japanese support)
   const DEFAULT_ELEVENLABS_VOICES = [
-    'pNInz6obpgDQGcFmaJgB', // Adam
-    'ErXwobaYiN019PkySvjV', // Antoni
-    'VR6AewLTigWG4xSOukaG', // Arnold
+    'iP95p4xoKVk53GoZ742B', // Chris - narrator
+    'TX3LPaxmHKxFdv7VOQHJ', // Liam - natural
+    'onwK4e9ZLuTAKqWW03F9', // Daniel - authoritative
   ];
 
   // Main speak function: ElevenLabs → Browser (no TalkingHead)
@@ -256,10 +268,16 @@ const InterviewPanel: React.FC<{
       const elevenlabsVoiceId = speaker?.elevenlabsVoiceId
         || DEFAULT_ELEVENLABS_VOICES[Math.max(0, speakerIndex) % DEFAULT_ELEVENLABS_VOICES.length];
 
-      // 1. Try ElevenLabs
+      // 1. Try ElevenLabs with Japanese language hint
       if (serverStatus.elevenlabs && elevenlabsVoiceId) {
-        console.log('[Speak]', speakerId, '→ trying ElevenLabs voiceId=' + elevenlabsVoiceId);
-        const ok = await speakWithElevenLabs(text, elevenlabsVoiceId);
+        const lang = speaker?.settings?.ttsLang || 'ja-JP';
+        const langCode = lang.split('-')[0]; // 'ja-JP' → 'ja'
+        console.log('[Speak]', speakerId, '→ trying ElevenLabs voiceId=' + elevenlabsVoiceId, 'lang=' + langCode);
+        const ok = await speakWithElevenLabs(text, elevenlabsVoiceId, {
+          languageCode: langCode,
+          stability: 0.75,
+          similarityBoost: 0.75,
+        });
         if (ok) {
           console.log('[Speak]', speakerId, '→ ElevenLabs OK');
           return;

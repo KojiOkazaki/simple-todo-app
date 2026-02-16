@@ -172,7 +172,7 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
     name: '田中 部長',
     gender: 'male',
     voice: 'ja-JP-Standard-C',
-    elevenlabsVoiceId: 'pNInz6obpgDQGcFmaJgB', // Adam - 落ち着いた男性の声
+    elevenlabsVoiceId: 'iP95p4xoKVk53GoZ742B', // Chris - 多言語対応・落ち着いた男性ナレーター
     personality: 'neutral',
     roleDescription: '人事部長。経験豊富で冷静に本質を見抜く。',
     url: '/assets/male-avatar1.glb',
@@ -191,7 +191,7 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
     name: '鈴木 課長',
     gender: 'male',
     voice: 'ja-JP-Standard-D',
-    elevenlabsVoiceId: 'ErXwobaYiN019PkySvjV', // Antoni - 明るい男性の声
+    elevenlabsVoiceId: 'TX3LPaxmHKxFdv7VOQHJ', // Liam - 多言語対応・明るい男性
     personality: 'friendly',
     roleDescription: '現場マネージャー。親しみやすく実務経験を重視。',
     url: '/assets/male-avatar3.glb',
@@ -210,7 +210,7 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
     name: '山田 取締役',
     gender: 'male',
     voice: 'ja-JP-Standard-B',
-    elevenlabsVoiceId: 'VR6AewLTigWG4xSOukaG', // Arnold - 威厳のある男性の声
+    elevenlabsVoiceId: 'onwK4e9ZLuTAKqWW03F9', // Daniel - 多言語対応・権威ある男性
     personality: 'strict',
     roleDescription: '役員。厳しく論理性と高い志を求める。',
     url: '/assets/male-avatar5.glb',
@@ -229,9 +229,9 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
 // Ensure speakers have elevenlabsVoiceId (fix stale localStorage)
 const ensureVoiceIds = (speakers: AvatarConfig[]): AvatarConfig[] => {
   const voiceMap: Record<string, string> = {
-    tanaka: 'pNInz6obpgDQGcFmaJgB',
-    suzuki: 'ErXwobaYiN019PkySvjV',
-    yamada: 'VR6AewLTigWG4xSOukaG',
+    tanaka: 'iP95p4xoKVk53GoZ742B',  // Chris
+    suzuki: 'TX3LPaxmHKxFdv7VOQHJ',  // Liam
+    yamada: 'onwK4e9ZLuTAKqWW03F9',  // Daniel
   };
   return speakers.map(s => {
     if (!s.elevenlabsVoiceId && voiceMap[s.id]) {
@@ -320,7 +320,7 @@ const useEditorStore = create<EditorState>()(
     }),
     {
       name: 'interview-editor-storage',
-      version: 1,
+      version: 2,
       partialize: (state) => ({
         nodes: state.nodes,
         connections: state.connections,
@@ -332,8 +332,22 @@ const useEditorStore = create<EditorState>()(
         currentModel: state.currentModel,
       }),
       migrate: (persistedState: any, version: number) => {
-        if (version === 0 && persistedState.speakers) {
+        if (version < 1 && persistedState.speakers) {
           persistedState.speakers = ensureVoiceIds(persistedState.speakers);
+        }
+        // v2: update to multilingual voices for better Japanese
+        if (version < 2 && persistedState.speakers) {
+          const oldToNew: Record<string, string> = {
+            'pNInz6obpgDQGcFmaJgB': 'iP95p4xoKVk53GoZ742B',  // Adam → Chris
+            'ErXwobaYiN019PkySvjV': 'TX3LPaxmHKxFdv7VOQHJ',  // Antoni → Liam
+            'VR6AewLTigWG4xSOukaG': 'onwK4e9ZLuTAKqWW03F9',  // Arnold → Daniel
+          };
+          persistedState.speakers = persistedState.speakers.map((s: any) => {
+            if (s.elevenlabsVoiceId && oldToNew[s.elevenlabsVoiceId]) {
+              return { ...s, elevenlabsVoiceId: oldToNew[s.elevenlabsVoiceId] };
+            }
+            return s;
+          });
         }
         return persistedState;
       },

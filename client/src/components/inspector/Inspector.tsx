@@ -214,16 +214,37 @@ const AvatarInspector: React.FC<{ avatar: AvatarConfig }> = ({ avatar }) => {
 
       <div className="inspector-section">
         <label className="inspector-label">ElevenLabs Voice ID</label>
+        <select
+          className="inspector-select"
+          value={avatar.elevenlabsVoiceId || ''}
+          onChange={(e) => handleUpdate('elevenlabsVoiceId', e.target.value)}
+          style={{ marginBottom: '4px' }}
+        >
+          <option value="">-- プリセットから選択 --</option>
+          <optgroup label="日本語対応 (Multilingual v2)">
+            <option value="cgSgspJ2msm6clMCkdW9">Jessica (女性・落ち着き)</option>
+            <option value="iP95p4xoKVk53GoZ742B">Chris (男性・ナレーター)</option>
+            <option value="onwK4e9ZLuTAKqWW03F9">Daniel (男性・権威)</option>
+            <option value="XB0fDUnXU5powFXDhCwa">Charlotte (女性・明るい)</option>
+            <option value="pFZP5JQG7iQjIQuC4Bku">Lily (女性・温かい)</option>
+            <option value="TX3LPaxmHKxFdv7VOQHJ">Liam (男性・自然)</option>
+            <option value="bIHbv24MWmeRgasZH58o">Will (男性・フレンドリー)</option>
+            <option value="nPczCjzI2devNBz1zQrb">Brian (男性・深い)</option>
+          </optgroup>
+          <optgroup label="クラシック">
+            <option value="pNInz6obpgDQGcFmaJgB">Adam (男性・英語)</option>
+            <option value="ErXwobaYiN019PkySvjV">Antoni (男性・英語)</option>
+            <option value="VR6AewLTigWG4xSOukaG">Arnold (男性・英語)</option>
+          </optgroup>
+        </select>
         <input
           type="text"
           className="inspector-input"
           value={avatar.elevenlabsVoiceId || ''}
           onChange={(e) => handleUpdate('elevenlabsVoiceId', e.target.value)}
-          placeholder="e.g. pNInz6obpgDQGcFmaJgB"
+          placeholder="またはVoice IDを直接入力"
+          style={{ marginTop: '4px' }}
         />
-        <div style={{ fontSize: '11px', color: '#888', marginTop: '4px' }}>
-          ElevenLabs API の Voice ID を入力
-        </div>
       </div>
 
       <div className="inspector-section">

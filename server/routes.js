@@ -292,7 +292,12 @@ Only output the dialogue text, nothing else.`;
 
 // ElevenLabs TTS endpoint
 router.post('/tts/elevenlabs', async (req, res) => {
-  const { text, voiceId, modelId = 'eleven_multilingual_v2' } = req.body;
+  const {
+    text, voiceId,
+    modelId = 'eleven_multilingual_v2',
+    languageCode,
+    voiceSettings,
+  } = req.body;
   const apiKey = process.env.ELEVENLABS_API_KEY;
 
   if (!apiKey) {
@@ -303,6 +308,21 @@ router.post('/tts/elevenlabs', async (req, res) => {
   }
 
   try {
+    const body = {
+      text,
+      model_id: modelId,
+      voice_settings: {
+        stability: voiceSettings?.stability ?? 0.75,
+        similarity_boost: voiceSettings?.similarityBoost ?? 0.75,
+        style: voiceSettings?.style ?? 0.0,
+        use_speaker_boost: true,
+      },
+    };
+    // language_code helps multilingual models pronounce correctly
+    if (languageCode) {
+      body.language_code = languageCode;
+    }
+
     const ttsResponse = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`, {
       method: 'POST',
       headers: {
@@ -310,14 +330,7 @@ router.post('/tts/elevenlabs', async (req, res) => {
         'Content-Type': 'application/json',
         'Accept': 'audio/mpeg',
       },
-      body: JSON.stringify({
-        text,
-        model_id: modelId,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-        },
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!ttsResponse.ok) {
