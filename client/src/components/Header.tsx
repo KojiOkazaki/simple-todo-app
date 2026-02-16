@@ -82,16 +82,17 @@ const Header: React.FC = () => {
             <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
             <circle cx="11" cy="11" r="2" />
           </svg>
-          Authoring
+          設計
         </button>
         <button
           className={`header-mode-btn ${mode === 'verification' ? 'active verification' : ''}`}
           onClick={() => setMode('verification')}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M20 6L9 17l-5-5" />
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
           </svg>
-          Verification
+          面接
         </button>
       </div>
 

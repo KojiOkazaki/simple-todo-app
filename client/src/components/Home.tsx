@@ -6,6 +6,7 @@ import NodeEditor from './nodeeditor/NodeEditor';
 import Inspector from './inspector/Inspector';
 import PreviewPanel from './preview/PreviewPanel';
 import AvatarLibrary from './avatar/AvatarLibrary';
+import InterviewPanel from './interview/InterviewPanel';
 import PanelHeader from './ui/PanelHeader';
 
 const Home: React.FC = () => {
@@ -65,14 +66,13 @@ const Home: React.FC = () => {
             <Inspector />
           </>
         ) : mode === 'verification' ? (
-          <div className="verification-mode">
-            <div className="verification-placeholder">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.5">
-                <path d="M9 11l3 3L22 4" />
-                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
-              <h3>Verification Mode</h3>
-              <p>Play conversations in Authoring mode first, then export for verification.</p>
+          /* Interview Simulation Mode */
+          <div className="interview-mode-layout">
+            <div className="interview-scene-area">
+              <ScenePanel avatarInstancesRef={avatarInstancesRef} />
+            </div>
+            <div className="interview-chat-area">
+              <InterviewPanel avatarInstancesRef={avatarInstancesRef} />
             </div>
           </div>
         ) : (
