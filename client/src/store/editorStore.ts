@@ -226,6 +226,21 @@ const defaultInterviewSpeakers: AvatarConfig[] = [
   },
 ];
 
+// Ensure speakers have elevenlabsVoiceId (fix stale localStorage)
+const ensureVoiceIds = (speakers: AvatarConfig[]): AvatarConfig[] => {
+  const voiceMap: Record<string, string> = {
+    tanaka: 'pNInz6obpgDQGcFmaJgB',
+    suzuki: 'ErXwobaYiN019PkySvjV',
+    yamada: 'VR6AewLTigWG4xSOukaG',
+  };
+  return speakers.map(s => {
+    if (!s.elevenlabsVoiceId && voiceMap[s.id]) {
+      return { ...s, elevenlabsVoiceId: voiceMap[s.id] };
+    }
+    return s;
+  });
+};
+
 const useEditorStore = create<EditorState>()(
   persist(
     (set, get) => ({
@@ -305,6 +320,7 @@ const useEditorStore = create<EditorState>()(
     }),
     {
       name: 'interview-editor-storage',
+      version: 1,
       partialize: (state) => ({
         nodes: state.nodes,
         connections: state.connections,
@@ -315,6 +331,12 @@ const useEditorStore = create<EditorState>()(
         currentProvider: state.currentProvider,
         currentModel: state.currentModel,
       }),
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0 && persistedState.speakers) {
+          persistedState.speakers = ensureVoiceIds(persistedState.speakers);
+        }
+        return persistedState;
+      },
     }
   )
 );
