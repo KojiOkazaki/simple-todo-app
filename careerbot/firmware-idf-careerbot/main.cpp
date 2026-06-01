@@ -48,9 +48,7 @@ static std::string g_state   = "接続中…";
 static std::string g_caption = "";
 static std::string g_pending = "";  // reply text, shown only when audio starts
 static volatile bool g_dirty = true;
-static volatile bool g_playPending = false;
-static std::vector<int16_t> g_playbuf;
-static std::vector<int16_t> g_playOut;  // persists during async playback
+static std::vector<int16_t> g_seg;   // small streaming segment (never the whole reply)
 static int g_inRate = 16000;  // sample rate of received audio (from audio_out_start)
 static bool g_recording = false;
 static int64_t g_pressUs = 0;
@@ -184,13 +182,23 @@ static void wsSend(const char* json) {
     if (g_ws) esp_websocket_client_send_text(g_ws, json, strlen(json), portMAX_DELAY);
 }
 
+// Play one small streaming segment (~0.5s) and free it. Keeps memory tiny so
+// long replies never exhaust RAM. Runs in the websocket task; blocking here
+// just applies TCP backpressure while the main loop keeps animating the ticker.
+static void flushSegment() {
+    if (g_seg.empty()) return;
+    std::vector<int16_t> out = resample16(g_seg, g_inRate, GetHAL().getAudioSampleRate());
+    g_seg.clear();
+    GetHAL().audioPlay(out, false);
+}
+
 static void onJson(const char* data, int len) {
     cJSON* j = cJSON_ParseWithLength(data, len);
     if (!j) return;
     const char* type = cJSON_GetStringValue(cJSON_GetObjectItem(j, "type"));
     if (type) {
         if (!strcmp(type, "auth_ok")) {
-            g_caption = "Aボタンで相談";
+            g_caption = "";
             setState("待機中");
         } else if (!strcmp(type, "state")) {
             const char* v = cJSON_GetStringValue(cJSON_GetObjectItem(j, "value"));
@@ -207,9 +215,13 @@ static void onJson(const char* data, int len) {
         } else if (!strcmp(type, "audio_out_start")) {
             cJSON* sr = cJSON_GetObjectItem(j, "sample_rate");
             if (cJSON_IsNumber(sr)) g_inRate = sr->valueint;
-            g_playbuf.clear();
+            g_seg.clear();
+            GetHAL().vibrate(60);
+            g_caption = g_pending;  // reveal text exactly as the voice starts
+            g_pending.clear();
+            setState("アドバイス中");
         } else if (!strcmp(type, "audio_out_end")) {
-            g_playPending = true;
+            flushSegment();  // play any remaining tail
         } else if (!strcmp(type, "error")) {
             const char* m = cJSON_GetStringValue(cJSON_GetObjectItem(j, "message"));
             g_caption = m ? m : "エラー";
@@ -235,7 +247,8 @@ static void ws_handler(void*, esp_event_base_t, int32_t id, void* data) {
         case WEBSOCKET_EVENT_DATA:
             if (e->op_code == 0x2) {  // binary: PCM16 output chunk
                 const int16_t* p = (const int16_t*)e->data_ptr;
-                g_playbuf.insert(g_playbuf.end(), p, p + e->data_len / 2);
+                g_seg.insert(g_seg.end(), p, p + e->data_len / 2);
+                if (g_seg.size() >= 8000) flushSegment();  // ~0.5s -> stream it
             } else if (e->op_code == 0x1 && e->data_len > 0) {  // text JSON
                 onJson(e->data_ptr, e->data_len);
             }
@@ -257,9 +270,6 @@ extern "C" void app_main() {
 
     GetHAL().init();
     GetHAL().setSpeakerVolume(255, true);  // loud
-    // Route large allocations (the multi-second reply audio) to PSRAM so long
-    // replies don't exhaust internal RAM and crash. Small/DMA allocs stay internal.
-    heap_caps_malloc_extmem_enable(16384);
     drawStatic();
 
     wifi_connect();
@@ -317,19 +327,8 @@ extern "C" void app_main() {
             g_dirty = true;
         }
 
-        if (g_playPending) {
-            g_playPending = false;
-            int outRate = GetHAL().getAudioSampleRate();
-            g_playOut = resample16(g_playbuf, g_inRate, outRate);
-            g_playbuf.clear();
-            GetHAL().vibrate(60);
-            g_caption = g_pending;  // reveal text exactly as the voice starts
-            g_pending.clear();
-            setState("アドバイス中");
-            // async so the loop keeps animating the ticker while speaking
-            GetHAL().audioPlay(g_playOut, true);
-        }
-
+        // Playback is streamed in the websocket task (flushSegment); the main
+        // loop just keeps the UI/ticker animating.
         if (g_dirty) { drawStatic(); g_dirty = false; }
         animateTicker();  // no-op when there is no caption
         vTaskDelay(pdMS_TO_TICKS(30));
