@@ -48,6 +48,7 @@ static std::string g_caption = "";
 static volatile bool g_dirty = true;
 static volatile bool g_playPending = false;
 static std::vector<int16_t> g_playbuf;
+static std::vector<int16_t> g_playOut;  // persists during async playback
 static int g_inRate = 16000;  // sample rate of received audio (from audio_out_start)
 static bool g_recording = false;
 static int64_t g_pressUs = 0;
@@ -98,27 +99,23 @@ static void drawStatic() {
 
     d.setSwapBytes(true);
 #ifdef HAVE_LOGO
-    // Logo dominates the screen (>50%): huge when idle, large during a reply.
-    float targetH = hasCaption ? 300.0f : 408.0f;
-    float z = targetH / logo_h;
-    float cyLogo = hasCaption ? (36 + targetH / 2.0f) : (H / 2.0f - 6);
-    d.pushImageRotateZoom(cx, cyLogo, logo_w / 2.0f, logo_h / 2.0f, 0.0f, z, z,
-                          logo_w, logo_h, logo_data);
-#endif
-
-    // state label (gothic), small, at the very top
-    d.setFont(&fonts::lgfxJapanGothic_24);
-    d.setTextDatum(top_center);
-    d.setTextColor(0x9CDB);
-    d.drawString(g_state.c_str(), cx, 6);
-
-    if (!hasCaption) {
-        d.setFont(&fonts::lgfxJapanGothic_20);
-        d.setTextDatum(bottom_center);
-        d.setTextColor(0x6B7C);
-        std::string hint = std::string("A長押し:話す  B:") + MODE_JP[g_modeIdx];
-        d.drawString(hint.c_str(), cx, H - 8);
+    if (hasCaption) {
+        // Reply view: big logo on top, scrolling answer below (animateTicker).
+        float z = 330.0f / logo_h;
+        d.pushImageRotateZoom(cx, 30 + (logo_h * z) / 2.0f, logo_w / 2.0f,
+                              logo_h / 2.0f, 0.0f, z, z, logo_w, logo_h, logo_data);
+        // no state text here; the ticker carries the message
+    } else {
+        // Idle/connecting/disconnected: huge centered logo + state below.
+        float z = 360.0f / logo_h;
+        d.pushImageRotateZoom(cx, H / 2.0f - 10, logo_w / 2.0f, logo_h / 2.0f,
+                              0.0f, z, z, logo_w, logo_h, logo_data);
+        d.setFont(&fonts::lgfxJapanGothic_24);  // gothic (not mincho)
+        d.setTextDatum(middle_center);
+        d.setTextColor(0x9CDB);
+        d.drawString(g_state.c_str(), cx, H - 54);  // inside the round edge
     }
+#endif
     g_tickerInit = false;  // restart the ticker for the new caption
 }
 
@@ -126,8 +123,8 @@ static void drawStatic() {
 static void animateTicker() {
     if (g_caption.empty()) return;
     auto& d = GetHAL().getDisplay();
-    int W = d.width(), H = d.height();
-    int bandY = H - 116, bandH = 64;
+    int W = d.width();
+    int bandY = 360, bandH = 58;  // below the reply logo, inside the round edge
 
     d.setFont(&fonts::lgfxJapanGothic_40);
     int tw = d.textWidth(g_caption.c_str());
@@ -307,11 +304,12 @@ extern "C" void app_main() {
         if (g_playPending) {
             g_playPending = false;
             int outRate = GetHAL().getAudioSampleRate();
-            std::vector<int16_t> pcm = resample16(g_playbuf, g_inRate, outRate);
-            GetHAL().vibrate(60);
-            GetHAL().audioPlay(pcm, false);  // blocking play at the codec's rate
+            g_playOut = resample16(g_playbuf, g_inRate, outRate);
             g_playbuf.clear();
-            setState("待機中");
+            GetHAL().vibrate(60);
+            setState("アドバイス中");
+            // async so the loop keeps animating the ticker while speaking
+            GetHAL().audioPlay(g_playOut, true);
         }
 
         if (g_dirty) { drawStatic(); g_dirty = false; }

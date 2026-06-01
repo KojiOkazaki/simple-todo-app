@@ -97,6 +97,12 @@ export class LocalPipelineProvider extends VoiceSession {
     form.append('model', this.cfg.sttModel);
     form.append('language', 'ja');
     form.append('response_format', 'json');
+    // Bias transcription toward job-hunting vocabulary (fixes e.g.
+    // 自己分析 misheard as 事故分析).
+    form.append(
+      'prompt',
+      '就職活動・就活の相談です。自己分析、志望動機、ガクチカ、自己PR、エントリーシート、面接、業界研究、インターン、内定、キャリアセンター。'
+    );
 
     const res = await fetchT(this.cfg.sttUrl, { method: 'POST', body: form }, 60000);
     if (!res.ok) throw new Error(`STT ${res.status}: ${await res.text()}`);
