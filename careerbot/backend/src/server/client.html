@@ -112,29 +112,49 @@ function playPcm(chunks, rate) {
   const src = playCtx.createBufferSource(); src.buffer=ab; src.connect(playCtx.destination); src.start();
 }
 
-// ---- mic capture (push-to-talk, 16k PCM16) ----
+// ---- mic capture (push-to-talk, 16k PCM16) via AudioWorklet ----
 const micBtn = document.getElementById('mic');
-let micCtx, micStream, micNode, recording=false;
+
+// Worklet runs on the audio thread: converts Float32 frames to PCM16 and
+// posts them back to the main thread (transferable ArrayBuffer).
+const CAPTURE_WORKLET = `
+class CaptureProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (ch) {
+      const i16 = new Int16Array(ch.length);
+      for (let i = 0; i < ch.length; i++) {
+        const s = Math.max(-1, Math.min(1, ch[i]));
+        i16[i] = s < 0 ? s * 32768 : s * 32767;
+      }
+      this.port.postMessage(i16.buffer, [i16.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor('capture', CaptureProcessor);
+`;
+
+let micCtx, micStream, micNode, micSink, recording = false;
 async function startMic() {
-  if (recording || ws.readyState!==1) return;
+  if (recording || ws.readyState !== 1) return;
   micStream = await navigator.mediaDevices.getUserMedia({ audio:{ channelCount:1, echoCancellation:true } });
   micCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate:16000 });
+  await micCtx.audioWorklet.addModule(
+    URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type:'application/javascript' }))
+  );
   const srcNode = micCtx.createMediaStreamSource(micStream);
-  micNode = micCtx.createScriptProcessor(2048, 1, 1);
+  micNode = new AudioWorkletNode(micCtx, 'capture');
+  micNode.port.onmessage = (e) => { if (recording && ws.readyState === 1) ws.send(e.data); };
+  // Zero-gain sink keeps the node pulled by the graph without echoing the mic.
+  micSink = micCtx.createGain(); micSink.gain.value = 0;
   ws.send(JSON.stringify({ type:'audio_in_start', sample_rate:16000, channels:1, format:'pcm16' }));
-  recording = true; micBtn.classList.add('rec'); assistantEl=null;
-  micNode.onaudioprocess = (e) => {
-    if (!recording) return;
-    const f = e.inputBuffer.getChannelData(0);
-    const i16 = new Int16Array(f.length);
-    for (let i=0;i<f.length;i++){ const s=Math.max(-1,Math.min(1,f[i])); i16[i]=s<0?s*32768:s*32767; }
-    ws.send(i16.buffer);
-  };
-  srcNode.connect(micNode); micNode.connect(micCtx.destination);
+  recording = true; micBtn.classList.add('rec'); assistantEl = null;
+  srcNode.connect(micNode); micNode.connect(micSink); micSink.connect(micCtx.destination);
 }
 function stopMic() {
   if (!recording) return;
-  recording=false; micBtn.classList.remove('rec');
+  recording = false; micBtn.classList.remove('rec');
   try { micNode.disconnect(); micStream.getTracks().forEach(t=>t.stop()); micCtx.close(); } catch {}
   ws.send(JSON.stringify({ type:'audio_in_end' }));
 }
