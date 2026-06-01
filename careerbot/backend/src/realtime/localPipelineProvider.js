@@ -13,6 +13,18 @@ import { config } from '../config.js';
 import { VoiceSession } from './voiceSession.js';
 import { encodeWav, decodeWav, resamplePcm16, toMono } from './audioUtils.js';
 
+// fetch with a timeout so a hung local service surfaces an error instead of
+// leaving the device stuck on "考えています…".
+async function fetchT(url, opts, ms) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export class LocalPipelineProvider extends VoiceSession {
   constructor() {
     super();
@@ -56,19 +68,25 @@ export class LocalPipelineProvider extends VoiceSession {
     // 1) STT (Whisper) for voice turns; typed turns skip straight to the LLM.
     let userText = text || '';
     if (!userText && pcm && pcm.length > 0) {
+      console.log(`[local] STT: transcribing ${pcm.length} bytes...`);
       userText = await this.#transcribe(pcm);
+      console.log(`[local] STT done: "${userText}"`);
     }
     if (this.closed) return;
     if (userText) this.emit('transcript', 'user', userText);
 
     // 2) LLM (Gemma via OpenAI-compatible chat).
+    console.log(`[local] LLM: asking ${this.cfg.llmModel}...`);
     const assistantText = await this.#chat(userText);
+    console.log(`[local] LLM done: "${assistantText.slice(0, 60)}..."`);
     if (this.closed) return;
     this.emit('transcript', 'assistant', assistantText);
     this.emit('assistant_text', assistantText);
 
     // 3) TTS (VOICEVOX) -> stream PCM16 at the device sample rate.
+    console.log('[local] TTS: synthesizing...');
     await this.#speak(assistantText);
+    console.log('[local] TTS done');
     if (!this.closed) this.emit('audio_done');
   }
 
@@ -80,7 +98,7 @@ export class LocalPipelineProvider extends VoiceSession {
     form.append('language', 'ja');
     form.append('response_format', 'json');
 
-    const res = await fetch(this.cfg.sttUrl, { method: 'POST', body: form });
+    const res = await fetchT(this.cfg.sttUrl, { method: 'POST', body: form }, 60000);
     if (!res.ok) throw new Error(`STT ${res.status}: ${await res.text()}`);
     const data = await res.json();
     return (data.text || '').trim();
@@ -94,7 +112,7 @@ export class LocalPipelineProvider extends VoiceSession {
       ...this.history.slice(-this.cfg.historyTurns * 2),
     ];
 
-    const res = await fetch(this.cfg.llmUrl, {
+    const res = await fetchT(this.cfg.llmUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -106,7 +124,7 @@ export class LocalPipelineProvider extends VoiceSession {
         stream: false,
         temperature: 0.7,
       }),
-    });
+    }, 60000);
     if (!res.ok) throw new Error(`LLM ${res.status}: ${await res.text()}`);
     const data = await res.json();
     const text =
@@ -123,18 +141,19 @@ export class LocalPipelineProvider extends VoiceSession {
     const spk = this.cfg.ttsSpeaker;
 
     // VOICEVOX: audio_query then synthesis.
-    const q = await fetch(
+    const q = await fetchT(
       `${base}/audio_query?speaker=${spk}&text=${encodeURIComponent(text)}`,
-      { method: 'POST' }
+      { method: 'POST' },
+      30000
     );
     if (!q.ok) throw new Error(`VOICEVOX audio_query ${q.status}`);
     const query = await q.json();
 
-    const s = await fetch(`${base}/synthesis?speaker=${spk}`, {
+    const s = await fetchT(`${base}/synthesis?speaker=${spk}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'audio/wav' },
       body: JSON.stringify(query),
-    });
+    }, 30000);
     if (!s.ok) throw new Error(`VOICEVOX synthesis ${s.status}`);
 
     const wav = Buffer.from(await s.arrayBuffer());
