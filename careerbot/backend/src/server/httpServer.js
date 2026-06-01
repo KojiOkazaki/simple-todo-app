@@ -80,7 +80,8 @@ export function createHttpServer({ status }) {
       }
       res.writeHead(200, {
         'Content-Type': logo.type,
-        'Cache-Control': 'public, max-age=3600',
+        // Revalidate each load so a swapped-in logo shows up immediately.
+        'Cache-Control': 'no-cache',
       });
       res.end(logo.body);
       return;
