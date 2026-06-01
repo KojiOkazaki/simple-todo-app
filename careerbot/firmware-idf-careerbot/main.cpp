@@ -85,48 +85,63 @@ static std::vector<int16_t> resample16(const std::vector<int16_t>& in, int fromR
 }
 
 // ---- drawing ----
-static void draw() {
-    auto& d = GetHAL().getDisplay();
-    int cx = d.width() / 2;
-    d.fillScreen(TFT_BLACK);
+// Static layer (logo + state): redrawn only on change. The reply text is a
+// separate left-scrolling ticker animated every frame (animateTicker).
+static int g_tickerX = 0;
+static bool g_tickerInit = false;
 
+static void drawStatic() {
+    auto& d = GetHAL().getDisplay();
+    int W = d.width(), H = d.height(), cx = W / 2;
+    d.fillScreen(TFT_BLACK);
     bool hasCaption = !g_caption.empty();
-    int y;
-#ifdef HAVE_LOGO
-    // Big logo when idle/connecting/disconnected; smaller when a reply is shown.
-    float z = hasCaption ? 0.80f : 1.35f;
-    float lh = logo_h * z;
-    float cyLogo = 14 + lh / 2.0f;
+
     d.setSwapBytes(true);
+#ifdef HAVE_LOGO
+    // Logo dominates the screen (>50%): huge when idle, large during a reply.
+    float targetH = hasCaption ? 300.0f : 408.0f;
+    float z = targetH / logo_h;
+    float cyLogo = hasCaption ? (36 + targetH / 2.0f) : (H / 2.0f - 6);
     d.pushImageRotateZoom(cx, cyLogo, logo_w / 2.0f, logo_h / 2.0f, 0.0f, z, z,
                           logo_w, logo_h, logo_data);
-    y = (int)(14 + lh + 16);
-#else
-    d.setTextDatum(middle_center);
-    d.setFont(&fonts::efontJA_24);
-    d.setTextColor(TFT_WHITE);
-    d.drawString("CareerBot", cx, 70);
-    y = 130;
 #endif
 
-    d.setTextDatum(middle_center);
-    d.setFont(&fonts::efontJA_24);
+    // state label (gothic), small, at the very top
+    d.setFont(&fonts::lgfxJapanGothic_24);
+    d.setTextDatum(top_center);
     d.setTextColor(0x9CDB);
-    d.drawString(g_state.c_str(), cx, y);
+    d.drawString(g_state.c_str(), cx, 6);
 
-    if (hasCaption) {
-        d.setFont(&fonts::efontJA_16);
-        d.setTextColor(TFT_WHITE);
-        d.setTextWrap(true);
-        d.setCursor(36, y + 30);
-        d.print(g_caption.c_str());
+    if (!hasCaption) {
+        d.setFont(&fonts::lgfxJapanGothic_20);
+        d.setTextDatum(bottom_center);
+        d.setTextColor(0x6B7C);
+        std::string hint = std::string("A長押し:話す  B:") + MODE_JP[g_modeIdx];
+        d.drawString(hint.c_str(), cx, H - 8);
     }
+    g_tickerInit = false;  // restart the ticker for the new caption
+}
 
-    d.setTextDatum(middle_center);
-    d.setFont(&fonts::efontJA_16);
-    d.setTextColor(0x6B7C);
-    std::string hint = std::string("A長押し:話す  B:") + MODE_JP[g_modeIdx];
-    d.drawString(hint.c_str(), cx, d.height() - 22);
+// Reply text scrolls right-to-left like a news ticker (round screen safe).
+static void animateTicker() {
+    if (g_caption.empty()) return;
+    auto& d = GetHAL().getDisplay();
+    int W = d.width(), H = d.height();
+    int bandY = H - 116, bandH = 64;
+
+    d.setFont(&fonts::lgfxJapanGothic_40);
+    int tw = d.textWidth(g_caption.c_str());
+    if (!g_tickerInit) { g_tickerX = W; g_tickerInit = true; }
+
+    d.setClipRect(0, bandY, W, bandH);
+    d.fillRect(0, bandY, W, bandH, TFT_BLACK);
+    d.setTextDatum(middle_left);
+    d.setTextColor(TFT_WHITE);
+    d.drawString(g_caption.c_str(), g_tickerX, bandY + bandH / 2);
+    d.clearClipRect();
+
+    g_tickerX -= 6;
+    if (g_tickerX < -tw - 20) g_tickerX = W;  // loop
 }
 
 static void setState(const char* s) { g_state = s; g_dirty = true; }
@@ -234,7 +249,7 @@ extern "C" void app_main() {
 
     GetHAL().init();
     GetHAL().setSpeakerVolume(255, true);  // loud
-    draw();
+    drawStatic();
 
     wifi_connect();
 
@@ -299,7 +314,8 @@ extern "C" void app_main() {
             setState("待機中");
         }
 
-        if (g_dirty) { draw(); g_dirty = false; }
-        vTaskDelay(pdMS_TO_TICKS(20));
+        if (g_dirty) { drawStatic(); g_dirty = false; }
+        animateTicker();  // no-op when there is no caption
+        vTaskDelay(pdMS_TO_TICKS(30));
     }
 }
