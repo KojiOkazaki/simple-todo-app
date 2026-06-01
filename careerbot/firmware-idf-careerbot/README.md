@@ -54,9 +54,22 @@ idf.py -p /dev/cu.usbmodem1101 flash monitor
 cp ~/M5StopWatch-UserDemo/main/main.cpp.demo.bak ~/M5StopWatch-UserDemo/main/main.cpp
 ```
 
+## 操作
+- **A 短押し（タップ）**: サンプル質問を送る（Whisper不要）
+- **A 長押し**: 押している間あなたの声を録音 → 送信（**Whisper必要**）
+- **B**: モード切替（相談 / 面接 / 志望動機）
+
+## 自分の声で会話する（Whisper STT を起動）
+Mac で Whisper(OpenAI互換サーバー)を起動します。Docker が手早いです：
+```bash
+docker run --rm -p 8000:8000 fedirz/faster-whisper-server:latest-cpu
+```
+起動後、リレーサーバーは既定で `STT_URL=http://localhost:8000/v1/audio/transcriptions`
+を見るので、そのまま A 長押しで話せば「声→Whisper→gemma→ずんだもん」が回ります。
+（別のWhisper実装を使う場合は `.env` の `STT_URL` を合わせてください）
+
 ## 次の段階（後で）
-- マイク録音(`audioRecord`)→ `audio_in_*` 送信で「自分の声で相談」（Mac側に Whisper 導入が必要）
-- ロゴ画像の表示、字幕の見やすさ調整
+- 字幕のスクロール表示、ロゴアニメーション
 
 ## メモ
 - うまく音が出ない時はサーバーログ（`provider:local`）と VOICEVOX(`curl localhost:50021/version`)を確認。

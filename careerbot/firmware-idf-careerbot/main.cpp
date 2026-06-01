@@ -36,6 +36,7 @@
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_websocket_client.h"
 #include "cJSON.h"
 
@@ -48,6 +49,8 @@ static volatile bool g_dirty = true;
 static volatile bool g_playPending = false;
 static std::vector<int16_t> g_playbuf;
 static int g_inRate = 16000;  // sample rate of received audio (from audio_out_start)
+static bool g_recording = false;
+static int64_t g_pressUs = 0;
 static esp_websocket_client_handle_t g_ws = nullptr;
 
 static int g_modeIdx = 0;
@@ -91,7 +94,7 @@ static void draw() {
     int y;
 #ifdef HAVE_LOGO
     // Big logo when idle/connecting/disconnected; smaller when a reply is shown.
-    float z = hasCaption ? 0.65f : 1.20f;
+    float z = hasCaption ? 0.80f : 1.35f;
     float lh = logo_h * z;
     float cyLogo = 14 + lh / 2.0f;
     d.setSwapBytes(true);
@@ -122,7 +125,7 @@ static void draw() {
     d.setTextDatum(middle_center);
     d.setFont(&fonts::efontJA_16);
     d.setTextColor(0x6B7C);
-    std::string hint = std::string("A:質問  B:") + MODE_JP[g_modeIdx];
+    std::string hint = std::string("A長押し:話す  B:") + MODE_JP[g_modeIdx];
     d.drawString(hint.c_str(), cx, d.height() - 22);
 }
 
@@ -230,6 +233,7 @@ extern "C" void app_main() {
     }
 
     GetHAL().init();
+    GetHAL().setSpeakerVolume(255, true);  // loud
     draw();
 
     wifi_connect();
@@ -243,14 +247,39 @@ extern "C" void app_main() {
     for (;;) {
         GetHAL().updateButtonStates();
 
-        if (GetHAL().btnA.wasPressed()) {
+        // A button: tap = sample question; hold = push-to-talk (your voice).
+        if (GetHAL().btnA.wasPressed()) g_pressUs = esp_timer_get_time();
+
+        if (GetHAL().btnA.isPressed() && !g_recording &&
+            esp_timer_get_time() - g_pressUs > 350000) {
+            g_recording = true;
+            g_caption = "";
             GetHAL().vibrate(60);
-            const char* q = SAMPLES[g_sampleIdx++ % (sizeof(SAMPLES) / sizeof(SAMPLES[0]))];
-            g_caption = q;
-            char msg[256];
-            snprintf(msg, sizeof(msg), "{\"type\":\"text_in\",\"text\":\"%s\"}", q);
-            wsSend(msg);
-            setState("考えています…");
+            setState("聞いています…");
+            wsSend("{\"type\":\"audio_in_start\",\"sample_rate\":16000,\"channels\":1,\"format\":\"pcm16\"}");
+        }
+        if (g_recording && GetHAL().btnA.isPressed()) {
+            std::vector<int16_t> chunk;
+            GetHAL().audioRecord(chunk, 100);  // 100ms at codec rate
+            std::vector<int16_t> out = resample16(chunk, GetHAL().getAudioSampleRate(), 16000);
+            if (!out.empty())
+                esp_websocket_client_send_bin(g_ws, (const char*)out.data(),
+                                              out.size() * 2, portMAX_DELAY);
+        }
+        if (GetHAL().btnA.wasReleased()) {
+            if (g_recording) {
+                g_recording = false;
+                wsSend("{\"type\":\"audio_in_end\"}");
+                setState("考えています…");
+            } else {  // quick tap -> sample question (works without Whisper)
+                GetHAL().vibrate(60);
+                const char* q = SAMPLES[g_sampleIdx++ % (sizeof(SAMPLES) / sizeof(SAMPLES[0]))];
+                g_caption = q;
+                char msg[256];
+                snprintf(msg, sizeof(msg), "{\"type\":\"text_in\",\"text\":\"%s\"}", q);
+                wsSend(msg);
+                setState("考えています…");
+            }
         }
         if (GetHAL().btnB.wasPressed()) {
             g_modeIdx = (g_modeIdx + 1) % 3;
