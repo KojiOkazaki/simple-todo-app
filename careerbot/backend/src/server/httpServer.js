@@ -9,14 +9,25 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // careerbot/backend/src/server -> careerbot/assets/logo
-const LOGO_PATH = path.resolve(here, '../../../assets/logo/careerbot.svg');
+const LOGO_DIR = path.resolve(here, '../../../assets/logo');
+
+// Preference order: the original raster export wins over the vector fallback.
+// Drop careerbot.png into assets/logo/ and it is served automatically.
+const LOGO_CANDIDATES = [
+  { file: 'careerbot.png', type: 'image/png' },
+  { file: 'careerbot.svg', type: 'image/svg+xml' },
+];
 
 async function readLogo() {
-  try {
-    return await readFile(LOGO_PATH, 'utf8');
-  } catch {
-    return null;
+  for (const c of LOGO_CANDIDATES) {
+    try {
+      const body = await readFile(path.join(LOGO_DIR, c.file));
+      return { body, type: c.type };
+    } catch {
+      // try next candidate
+    }
   }
+  return null;
 }
 
 function splashHtml(status) {
@@ -31,7 +42,7 @@ function splashHtml(status) {
   body { margin:0; min-height:100vh; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:20px; font-family:system-ui, sans-serif;
     background:#0f1830; color:#eef2ff; }
-  img { width:200px; height:200px; }
+  img { width:220px; height:auto; }
   h1 { margin:0; font-size:28px; letter-spacing:1px; }
   .tag { color:#9fb3d8; }
   .badges { display:flex; gap:10px; }
@@ -39,7 +50,7 @@ function splashHtml(status) {
 </style>
 </head>
 <body>
-  <img src="/logo.svg" alt="CareerBot logo"/>
+  <img src="/logo" alt="CareerBot logo"/>
   <h1>CareerBot</h1>
   <div class="tag">就職相談向け音声AIアシスタント</div>
   <div class="badges">
@@ -59,18 +70,19 @@ export function createHttpServer({ status }) {
       return;
     }
 
-    if (req.url === '/logo.svg') {
-      const svg = await readLogo();
-      if (svg == null) {
+    // Serve the brand logo (prefers careerbot.png, falls back to careerbot.svg).
+    if (req.url === '/logo' || req.url === '/logo.svg' || req.url === '/logo.png') {
+      const logo = await readLogo();
+      if (logo == null) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: false, error: 'logo not found' }));
         return;
       }
       res.writeHead(200, {
-        'Content-Type': 'image/svg+xml',
+        'Content-Type': logo.type,
         'Cache-Control': 'public, max-age=3600',
       });
-      res.end(svg);
+      res.end(logo.body);
       return;
     }
 

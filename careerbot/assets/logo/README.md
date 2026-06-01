@@ -1,34 +1,27 @@
 # CareerBot ロゴ
 
-ブランド表示用ロゴをここに配置します（spec 6.3）。
+ブランド表示用ロゴ（spec 6.3）。**`careerbot.png` が正本**です。バックエンドは
+`careerbot.png` があれば最優先で配信し、無ければ `careerbot.svg`（暫定再現版）に
+フォールバックします。
 
 | ファイル | 用途 | 状態 |
 |----------|------|------|
-| `careerbot.svg` | 正本（ベクター）。バックエンド `/logo.svg` で配信、スプラッシュ画面で表示 | ✅ 配置済み（提供画像のベクター再現） |
-| `careerbot.png` | 起動スプラッシュ / 待機メイン / 管理画面ヘッダー（ラスター版） | ⬜ 任意（下記参照） |
+| `careerbot.png` | **正本**。起動スプラッシュ / 待機メイン / 管理画面ヘッダー | ⬜ 要配置（元画像を置いてください） |
+| `careerbot.svg` | 暫定フォールバック（自動生成の再現版・目の位置はラフ） | ✅ 配置済み（PNG を置けば不使用） |
 | `careerbot_round.png` | 発話中アニメーションの中心アイコン（円形） | ⬜ 任意 |
 
-## 本物の画像に差し替える場合
+## 元画像（PNG）の置き方
 
-`careerbot.svg` は提供されたロゴ画像をベクターで再現したものです。元の PNG/SVG を
-そのまま使いたい場合は、このディレクトリに上書きコミットしてください:
+手元の元ロゴ画像をこのディレクトリに `careerbot.png` として置き、コミット＆プッシュ
+してください。置いた瞬間にバックエンドの `/logo`（および `/` スプラッシュ）が本物の
+画像を返すようになります。
 
 ```bash
-# 例: 手元の元画像を正本にする
-cp /path/to/careerbot.svg careerbot/assets/logo/careerbot.svg   # SVG をそのまま使う
-# もしくは PNG を置き、httpServer の /logo 配信を png に向ける
+cp /path/to/あなたのロゴ.png careerbot/assets/logo/careerbot.png
+git add careerbot/assets/logo/careerbot.png
+git commit -m "Add CareerBot logo (original PNG)"
+git push
 ```
 
-バックエンドは `/logo.svg`（`careerbot.svg`）を配信し、`/` のスプラッシュ画面で表示します。
-ラスターが必要なら `rsvg-convert careerbot.svg -o careerbot.png` 等で生成できます。
-
-使用箇所:
-- 起動時スプラッシュ画面
-- 待機中メイン画面
-- 接続中画面
-- 発話中アニメーションの中心アイコン
-- バックエンド管理画面のヘッダーロゴ
-
-> ファームウェアでは、表示用に C 配列へ変換（`idf.py` の画像変換 or LVGL の
-> image converter）して `display_draw_logo()` から描画します。元の PNG をこの
-> ディレクトリにコミットしてください（現状は未配置のプレースホルダです）。
+> ファームウェア表示用には、PNG を LVGL image converter 等で C 配列に変換して
+> `display_draw_logo()` から描画します。
