@@ -72,17 +72,24 @@ static int g_sampleIdx = 0;
 static EventGroupHandle_t g_wifiEvents;
 #define WIFI_CONNECTED_BIT BIT0
 
-// Linear resample of mono PCM16 (e.g. server 16k -> device codec rate).
+// Fast integer (Q16 fixed-point) resample of mono PCM16. Avoids per-sample
+// double division (which was slow enough to trip the task watchdog) and
+// yields periodically so the idle task keeps the watchdog fed on long audio.
 static std::vector<int16_t> resample16(const std::vector<int16_t>& in, int fromRate, int toRate) {
     if (fromRate == toRate || in.empty()) return in;
-    size_t outN = (size_t)((uint64_t)in.size() * toRate / fromRate);
+    const size_t inN = in.size();
+    const size_t outN = (size_t)((uint64_t)inN * toRate / fromRate);
     std::vector<int16_t> out(outN);
+    const uint32_t step = (uint32_t)(((uint64_t)fromRate << 16) / toRate);  // Q16
+    uint32_t pos = 0;
     for (size_t i = 0; i < outN; i++) {
-        double srcPos = (double)i * fromRate / toRate;
-        size_t i0 = (size_t)srcPos;
-        size_t i1 = (i0 + 1 < in.size()) ? i0 + 1 : in.size() - 1;
-        double frac = srcPos - i0;
-        out[i] = (int16_t)(in[i0] + (in[i1] - in[i0]) * frac);
+        size_t i0 = pos >> 16;
+        int s0 = in[i0];
+        int s1 = (i0 + 1 < inN) ? in[i0 + 1] : s0;
+        int frac = (int)(pos & 0xFFFF);
+        out[i] = (int16_t)(s0 + (((s1 - s0) * frac) >> 16));
+        pos += step;
+        if ((i & 0xFFFF) == 0) vTaskDelay(1);  // yield so the watchdog stays fed
     }
     return out;
 }
