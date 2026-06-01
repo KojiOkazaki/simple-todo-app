@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "app.c"
+    SRCS "app.c" "button.c"
     INCLUDE_DIRS "include"
-    REQUIRES audio display network ui storage
+    REQUIRES audio display network ui storage driver
 )

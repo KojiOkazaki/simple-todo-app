@@ -17,7 +17,29 @@
 ## タスク構成（FreeRTOS, spec 19）
 
 `main/main.c` が `network_task` / `audio_capture_task` / `audio_playback_task` /
-`ui_task` / `app_state_task` を起動します。
+`ui_task` / `button_task` / `app_state_task` を起動します。
+
+## Task 1（実装済みの範囲）
+
+- **ボタン入力**: `components/app/button.c` が A/B ボタンを GPIO 入力 + デバウンスで
+  読み、`app_on_button_a`（Push-to-talk）/ `app_on_button_b`（モード切替）を発火。
+  GPIO 番号は `button.h` のマクロ（`CAREERBOT_BTN_A_GPIO` 等）で上書き可能 —
+  **StopWatch の実際のピン配置に合わせて確認してください**（現状は仮の値）。
+- **ロゴ表示**: 下記の手順で PNG を C 配列化し、`display_draw_logo()` が描画します。
+
+### ロゴを組み込む
+
+```bash
+pip install pillow
+python3 ../scripts/png_to_c.py ../assets/logo/careerbot.png \
+    components/display/logo_img.c --width 180
+```
+生成した `logo_img.c` を `components/display/CMakeLists.txt` の SRCS に追加し、
+`idf.py build` 時に `-DCAREERBOT_HAS_LOGO=1` を定義すると、`display_draw_logo()` が
+RGB565 のロゴをパネルに blit します（パネル init / blit 部は実機 BSP に合わせて実装）。
+
+> パネルコントローラの初期化・ピン配置・コーデック（esp_codec_dev / LVGL 等）は
+> StopWatch 実機の資料に合わせて各 stub を埋めてください。
 
 ## ビルド
 

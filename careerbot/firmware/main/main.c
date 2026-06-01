@@ -11,6 +11,7 @@
 
 #include "app.h"
 #include "audio.h"
+#include "button.h"
 #include "display.h"
 #include "network.h"
 #include "storage.h"
@@ -32,6 +33,7 @@ void app_main(void) {
     // Subsystems.
     audio_init();
     network_init();
+    button_init();
 
     // App state machine owns transitions idle->listening->thinking->speaking.
     app_init();
@@ -41,6 +43,7 @@ void app_main(void) {
     xTaskCreate(audio_capture_task,   "audio_in", 4096, NULL, 6, NULL);
     xTaskCreate(audio_playback_task,  "audio_out",4096, NULL, 6, NULL);
     xTaskCreate(ui_task,              "ui",       4096, NULL, 4, NULL);
+    xTaskCreate(button_task,          "button",   2560, NULL, 5, NULL);
     xTaskCreate(app_state_task,       "app",      4096, NULL, 5, NULL);
 
     ESP_LOGI(TAG, "CareerBot ready");

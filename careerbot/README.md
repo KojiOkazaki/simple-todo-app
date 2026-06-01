@@ -34,9 +34,11 @@ careerbot/
 |--------|------|
 | バックエンド（リレーサーバー） | ✅ 動作（mock プロバイダで E2E テスト通過） |
 | OpenAI Realtime アダプタ | ✅ 実装済み（要 API キー） |
+| ローカル音声パイプライン（Whisper + Gemma + VOICEVOX） | ✅ 実装済み（[docs/local-voice.md](docs/local-voice.md)） |
 | 3モードのプロンプト（相談/面接/志望動機） | ✅ 実装済み |
 | 会話履歴・プロファイル永続化（memory / sqlite） | ✅ 実装済み |
-| ファームウェア（ESP-IDF） | 🧱 雛形（責務分離した stub と CMake 構成） |
+| ロゴ表示（バックエンド `/logo` + スプラッシュ） | ✅ 実装済み |
+| ファームウェア（ESP-IDF） | 🧱 雛形 + Task 1（ボタン入力 / ロゴ組込み手順） |
 
 詳細なロードマップは [`docs/spec.md`](docs/spec.md) の「実装優先順位」「タスク分解」を参照。
 
