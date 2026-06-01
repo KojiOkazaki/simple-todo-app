@@ -45,6 +45,7 @@ static const char* TAG = "careerbot";
 // ---- shared UI state ----
 static std::string g_state   = "接続中…";
 static std::string g_caption = "";
+static std::string g_pending = "";  // reply text, shown only when audio starts
 static volatile bool g_dirty = true;
 static volatile bool g_playPending = false;
 static std::vector<int16_t> g_playbuf;
@@ -191,8 +192,10 @@ static void onJson(const char* data, int len) {
                 else if (!strcmp(v, "idle")) setState("待機中");
             }
         } else if (!strcmp(type, "assistant_text")) {
+            // Buffer the reply; it's revealed when playback starts (synced
+            // with the voice), not before.
             const char* t = cJSON_GetStringValue(cJSON_GetObjectItem(j, "text"));
-            if (t) { g_caption += t; g_dirty = true; }
+            if (t) g_pending += t;
         } else if (!strcmp(type, "audio_out_start")) {
             cJSON* sr = cJSON_GetObjectItem(j, "sample_rate");
             if (cJSON_IsNumber(sr)) g_inRate = sr->valueint;
@@ -266,6 +269,7 @@ extern "C" void app_main() {
             esp_timer_get_time() - g_pressUs > 350000) {
             g_recording = true;
             g_caption = "";
+            g_pending = "";
             GetHAL().vibrate(60);
             setState("聞いています…");
             wsSend("{\"type\":\"audio_in_start\",\"sample_rate\":16000,\"channels\":1,\"format\":\"pcm16\"}");
@@ -286,7 +290,8 @@ extern "C" void app_main() {
             } else {  // quick tap -> sample question (works without Whisper)
                 GetHAL().vibrate(60);
                 const char* q = SAMPLES[g_sampleIdx++ % (sizeof(SAMPLES) / sizeof(SAMPLES[0]))];
-                g_caption = q;
+                g_caption = "";   // reply text appears with the voice, not now
+                g_pending = "";
                 char msg[256];
                 snprintf(msg, sizeof(msg), "{\"type\":\"text_in\",\"text\":\"%s\"}", q);
                 wsSend(msg);
@@ -307,6 +312,8 @@ extern "C" void app_main() {
             g_playOut = resample16(g_playbuf, g_inRate, outRate);
             g_playbuf.clear();
             GetHAL().vibrate(60);
+            g_caption = g_pending;  // reveal text exactly as the voice starts
+            g_pending.clear();
             setState("アドバイス中");
             // async so the loop keeps animating the ticker while speaking
             GetHAL().audioPlay(g_playOut, true);
