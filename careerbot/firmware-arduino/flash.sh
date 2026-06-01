@@ -48,9 +48,13 @@ if grep -q "your-wifi-ssid" "$SKETCH/config.h"; then
   read -r -p "    このまま続けますか? [y/N] " a; [ "$a" = "y" ] || exit 1
 fi
 
-# 4.5) embed logo (PNG -> RGB565 header) if Pillow is available
+# 4.5) embed logo (PNG -> RGB565 header). Auto-installs Pillow if needed.
 LOGO_PNG="$SKETCH/data/careerbot.png"
 if [ -f "$LOGO_PNG" ]; then
+  if ! python3 -c "import PIL" >/dev/null 2>&1; then
+    say "installing Pillow (for logo embedding)"
+    pip3 install --quiet pillow >/dev/null 2>&1 || pip3 install --quiet --user pillow >/dev/null 2>&1 || true
+  fi
   if python3 -c "import PIL" >/dev/null 2>&1; then
     say "embedding logo ($LOGO_PNG -> logo_img.h)"
     python3 - "$LOGO_PNG" "$SKETCH/logo_img.h" <<'PY'
@@ -81,12 +85,16 @@ PY
   fi
 fi
 
-# 5) port
+# 5) port (prefer real USB serial; never the Bluetooth port)
 PORT="${1:-}"
 if [ -z "$PORT" ]; then
-  PORT="$(arduino-cli board list | awk '/usbmodem|usbserial|cu\./{print $1; exit}')"
+  PORT="$(ls /dev/cu.* 2>/dev/null | grep -iE 'usbmodem|usbserial|wchusb|slab' | grep -vi bluetooth | head -1)"
 fi
-[ -n "$PORT" ] || { say "シリアルポートが見つかりません。引数で指定: bash flash.sh /dev/cu.xxxx"; arduino-cli board list; exit 1; }
+if [ -z "$PORT" ]; then
+  say "USBシリアルポートが見つかりません。デバイスを接続し、引数で指定: bash flash.sh /dev/cu.usbmodemXXXX"
+  echo "  接続中のポート一覧:"; ls /dev/cu.* 2>/dev/null; arduino-cli board list
+  exit 1
+fi
 say "port: $PORT"
 
 # 6) compile + upload
