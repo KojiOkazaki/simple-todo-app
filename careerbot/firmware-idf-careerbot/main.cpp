@@ -37,6 +37,7 @@
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include "esp_websocket_client.h"
 #include "cJSON.h"
 
@@ -249,6 +250,9 @@ extern "C" void app_main() {
 
     GetHAL().init();
     GetHAL().setSpeakerVolume(255, true);  // loud
+    // Route large allocations (the multi-second reply audio) to PSRAM so long
+    // replies don't exhaust internal RAM and crash. Small/DMA allocs stay internal.
+    heap_caps_malloc_extmem_enable(16384);
     drawStatic();
 
     wifi_connect();
