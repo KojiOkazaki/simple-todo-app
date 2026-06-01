@@ -174,6 +174,7 @@ void onWsBin(uint8_t* payload, size_t len) {
 void wsEvent(WStype_t type, uint8_t* payload, size_t len) {
   switch (type) {
     case WStype_CONNECTED: {
+      Serial.println("[CareerBot] WS connected");
       String hello = String("{\"type\":\"hello\",\"device_id\":\"") + DEVICE_ID +
                      "\",\"firmware_version\":\"arduino-0.1\",\"device_token\":\"" +
                      DEVICE_TOKEN + "\"}";
@@ -182,27 +183,48 @@ void wsEvent(WStype_t type, uint8_t* payload, size_t len) {
     }
     case WStype_TEXT: onWsText(payload, len); break;
     case WStype_BIN:  onWsBin(payload, len);  break;
-    case WStype_DISCONNECTED: setState(ST_ERROR, "切断"); break;
+    case WStype_DISCONNECTED: Serial.println("[CareerBot] WS disconnected"); setState(ST_ERROR, "切断"); break;
     default: break;
   }
 }
 
 // ---------------- setup / loop ----------------
 void setup() {
+  Serial.begin(115200);
+  delay(300);
+  Serial.println("\n[CareerBot] boot");
+
   auto cfg = M5.config();
   M5.begin(cfg);
+  Serial.printf("[CareerBot] board=%d  display=%dx%d\n",
+                (int)M5.getBoard(), (int)M5.Display.width(), (int)M5.Display.height());
+
+  // Panel sanity check: if the screen stays black through these flashes,
+  // M5GFX is not driving this panel (update M5GFX/M5Unified or add a config).
+  M5.Display.fillScreen(TFT_RED);   delay(400);
+  M5.Display.fillScreen(TFT_GREEN); delay(400);
+  M5.Display.fillScreen(TFT_BLUE);  delay(400);
+
   M5.Display.setRotation(0);
   setState(ST_BOOT);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.printf("[CareerBot] WiFi connecting to %s ", WIFI_SSID);
   uint32_t t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) { delay(200); }
-  if (WiFi.status() != WL_CONNECTED) { setState(ST_ERROR, "Wi-Fi失敗"); }
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) { delay(200); Serial.print("."); }
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("[CareerBot] WiFi OK ip=%s\n", WiFi.localIP().toString().c_str());
+  } else {
+    Serial.println("[CareerBot] WiFi FAILED");
+    setState(ST_ERROR, "Wi-Fi失敗");
+  }
 
   ws.begin(SERVER_HOST, SERVER_PORT, WS_PATH);
   ws.onEvent(wsEvent);
   ws.setReconnectInterval(3000);
+  Serial.printf("[CareerBot] WS -> %s:%d%s\n", SERVER_HOST, SERVER_PORT, WS_PATH);
 }
 
 void loop() {
