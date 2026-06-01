@@ -87,17 +87,23 @@ static void draw() {
     int cx = d.width() / 2;
     d.fillScreen(TFT_BLACK);
 
+    bool hasCaption = !g_caption.empty();
     int y;
 #ifdef HAVE_LOGO
+    // Big logo when idle/connecting/disconnected; smaller when a reply is shown.
+    float z = hasCaption ? 0.65f : 1.20f;
+    float lh = logo_h * z;
+    float cyLogo = 14 + lh / 2.0f;
     d.setSwapBytes(true);
-    d.pushImage(cx - logo_w / 2, 8, logo_w, logo_h, logo_data);
-    y = 8 + logo_h + 16;
+    d.pushImageRotateZoom(cx, cyLogo, logo_w / 2.0f, logo_h / 2.0f, 0.0f, z, z,
+                          logo_w, logo_h, logo_data);
+    y = (int)(14 + lh + 16);
 #else
     d.setTextDatum(middle_center);
     d.setFont(&fonts::efontJA_24);
     d.setTextColor(TFT_WHITE);
-    d.drawString("CareerBot", cx, 64);
-    y = 120;
+    d.drawString("CareerBot", cx, 70);
+    y = 130;
 #endif
 
     d.setTextDatum(middle_center);
@@ -105,17 +111,19 @@ static void draw() {
     d.setTextColor(0x9CDB);
     d.drawString(g_state.c_str(), cx, y);
 
-    // reply caption (wrapped)
-    d.setFont(&fonts::efontJA_16);
-    d.setTextColor(TFT_WHITE);
-    d.setTextWrap(true);
-    d.setCursor(40, y + 28);
-    d.print(g_caption.c_str());
+    if (hasCaption) {
+        d.setFont(&fonts::efontJA_16);
+        d.setTextColor(TFT_WHITE);
+        d.setTextWrap(true);
+        d.setCursor(36, y + 30);
+        d.print(g_caption.c_str());
+    }
 
     d.setTextDatum(middle_center);
+    d.setFont(&fonts::efontJA_16);
     d.setTextColor(0x6B7C);
     std::string hint = std::string("A:質問  B:") + MODE_JP[g_modeIdx];
-    d.drawString(hint.c_str(), cx, d.height() - 26);
+    d.drawString(hint.c_str(), cx, d.height() - 22);
 }
 
 static void setState(const char* s) { g_state = s; g_dirty = true; }
