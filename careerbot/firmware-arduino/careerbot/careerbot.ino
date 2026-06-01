@@ -1,0 +1,217 @@
+// CareerBot — M5Stack StopWatch (ESP32-S3) firmware [Arduino / M5Unified]
+//
+// Connects to the relay server over WebSocket and acts as a voice client:
+//   A button (hold) = push-to-talk  -> streams mic PCM16 to server
+//   B button        = cycle mode     -> general / interview / motivation
+//   round AMOLED     = logo + state ("待機中 / 聞いています / 考えています / アドバイス中")
+//   speaker          = plays back the assistant's voice (VOICEVOX etc.)
+//
+// Protocol matches docs/api.md. See firmware-arduino/README.md for setup.
+//
+// Libraries (Arduino Library Manager):
+//   - M5Unified            (display / buttons / mic / speaker)
+//   - ArduinoJson          (control messages)
+//   - WebSockets (Markus Sattler / links2004)   (WebSocket client)
+
+#include <M5Unified.h>
+#include <WiFi.h>
+#include <WebSocketsClient.h>
+#include <ArduinoJson.h>
+#include <LittleFS.h>
+#include "config.h"
+
+WebSocketsClient ws;
+
+enum State { ST_BOOT, ST_IDLE, ST_LISTENING, ST_THINKING, ST_SPEAKING, ST_ERROR };
+State state = ST_BOOT;
+
+const char* MODES[] = {"general", "interview", "motivation"};
+const char* MODE_JP[] = {"相談", "面接練習", "志望動機"};
+int modeIdx = 0;
+
+// ---- audio config (must match server AUDIO_SAMPLE_RATE) ----
+static const int SAMPLE_RATE = 16000;
+static const size_t MIC_CHUNK = 512;      // samples per send
+int16_t micBuf[MIC_CHUNK];
+
+// playback accumulation buffer (assistant voice for one turn)
+std::vector<int16_t> playBuf;
+bool recording = false;
+
+// ---------------- UI ----------------
+const char* stateText() {
+  switch (state) {
+    case ST_BOOT:      return "起動中…";
+    case ST_IDLE:      return "待機中";
+    case ST_LISTENING: return "聞いています…";
+    case ST_THINKING:  return "考えています…";
+    case ST_SPEAKING:  return "アドバイス中";
+    default:           return "エラー";
+  }
+}
+
+void drawScreen(const char* caption = nullptr) {
+  auto& d = M5.Display;
+  d.startWrite();
+  d.fillScreen(TFT_BLACK);
+
+  // logo from LittleFS (/careerbot.png), fallback to a simple mark
+  int cx = d.width() / 2;
+  if (LittleFS.exists("/careerbot.png")) {
+    d.drawPngFile(LittleFS, "/careerbot.png", cx - 70, 60, 140, 140);
+  } else {
+    d.fillRoundRect(cx - 60, 70, 120, 120, 16, 0x2C9F);
+  }
+
+  d.setTextDatum(middle_center);
+  d.setTextColor(TFT_WHITE);
+  d.setTextSize(2);
+  d.drawString("CareerBot", cx, 230);
+
+  d.setTextColor(0x9CDB);
+  d.setTextSize(2);
+  d.drawString(stateText(), cx, 280);
+
+  if (caption) {
+    d.setTextColor(TFT_WHITE);
+    d.setTextSize(2);
+    d.drawString(caption, cx, 340);
+  }
+
+  // mode hint at the bottom
+  d.setTextColor(0x6B7C);
+  d.setTextSize(1);
+  d.drawString(String("A:話す  B:") + MODE_JP[modeIdx], cx, d.height() - 26);
+  d.endWrite();
+}
+
+void setState(State s, const char* caption = nullptr) {
+  state = s;
+  drawScreen(caption);
+}
+
+// ---------------- audio ----------------
+void startListening() {
+  if (recording) return;
+  M5.Speaker.end();
+  M5.Mic.begin();
+  recording = true;
+  M5.Power.setVibration(120); delay(60); M5.Power.setVibration(0);
+  ws.sendTXT("{\"type\":\"audio_in_start\",\"sample_rate\":16000,\"channels\":1,\"format\":\"pcm16\"}");
+  setState(ST_LISTENING);
+}
+
+void stopListening() {
+  if (!recording) return;
+  recording = false;
+  M5.Mic.end();
+  ws.sendTXT("{\"type\":\"audio_in_end\"}");
+  setState(ST_THINKING);
+}
+
+void pumpMic() {
+  if (!recording) return;
+  if (M5.Mic.record(micBuf, MIC_CHUNK, SAMPLE_RATE)) {
+    ws.sendBIN((uint8_t*)micBuf, MIC_CHUNK * sizeof(int16_t));
+  }
+}
+
+void playTurn() {
+  if (playBuf.empty()) { setState(ST_IDLE); return; }
+  M5.Mic.end();
+  M5.Speaker.begin();
+  M5.Power.setVibration(120); delay(60); M5.Power.setVibration(0);
+  M5.Speaker.playRaw(playBuf.data(), playBuf.size(), SAMPLE_RATE, false, 1, 0);
+  while (M5.Speaker.isPlaying()) { delay(10); }
+  playBuf.clear();
+  setState(ST_IDLE);
+}
+
+// ---------------- WebSocket ----------------
+void onWsText(uint8_t* payload, size_t len) {
+  StaticJsonDocument<512> doc;
+  if (deserializeJson(doc, payload, len)) return;
+  const char* type = doc["type"] | "";
+
+  if (!strcmp(type, "auth_ok")) {
+    setState(ST_IDLE, "ボタンを押して相談");
+  } else if (!strcmp(type, "state")) {
+    const char* v = doc["value"] | "";
+    if (!strcmp(v, "thinking")) setState(ST_THINKING);
+    else if (!strcmp(v, "listening")) setState(ST_LISTENING);
+    else if (!strcmp(v, "speaking")) setState(ST_SPEAKING);
+    else if (!strcmp(v, "idle") && !recording) setState(ST_IDLE);
+  } else if (!strcmp(type, "assistant_text")) {
+    // short reply fits the screen; show it as the caption
+    setState(ST_SPEAKING, doc["text"] | "");
+  } else if (!strcmp(type, "audio_out_start")) {
+    playBuf.clear();
+  } else if (!strcmp(type, "audio_out_end")) {
+    playTurn();
+  } else if (!strcmp(type, "error")) {
+    setState(ST_ERROR, doc["message"] | doc["code"] | "");
+  } else if (!strcmp(type, "ping")) {
+    ws.sendTXT("{\"type\":\"pong\"}");
+  }
+}
+
+void onWsBin(uint8_t* payload, size_t len) {
+  // accumulate PCM16 output audio for this turn
+  size_t n = len / 2;
+  size_t off = playBuf.size();
+  playBuf.resize(off + n);
+  memcpy(playBuf.data() + off, payload, n * 2);
+}
+
+void wsEvent(WStype_t type, uint8_t* payload, size_t len) {
+  switch (type) {
+    case WStype_CONNECTED: {
+      String hello = String("{\"type\":\"hello\",\"device_id\":\"") + DEVICE_ID +
+                     "\",\"firmware_version\":\"arduino-0.1\",\"device_token\":\"" +
+                     DEVICE_TOKEN + "\"}";
+      ws.sendTXT(hello);
+      break;
+    }
+    case WStype_TEXT: onWsText(payload, len); break;
+    case WStype_BIN:  onWsBin(payload, len);  break;
+    case WStype_DISCONNECTED: setState(ST_ERROR, "切断"); break;
+    default: break;
+  }
+}
+
+// ---------------- setup / loop ----------------
+void setup() {
+  auto cfg = M5.config();
+  M5.begin(cfg);
+  M5.Display.setRotation(0);
+  LittleFS.begin(true);
+  setState(ST_BOOT);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  uint32_t t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) { delay(200); }
+  if (WiFi.status() != WL_CONNECTED) { setState(ST_ERROR, "Wi-Fi失敗"); }
+
+  ws.begin(SERVER_HOST, SERVER_PORT, WS_PATH);
+  ws.onEvent(wsEvent);
+  ws.setReconnectInterval(3000);
+}
+
+void loop() {
+  M5.update();
+  ws.loop();
+
+  // A button: push-to-talk (hold to talk)
+  if (M5.BtnA.wasPressed())  startListening();
+  if (M5.BtnA.wasReleased()) stopListening();
+  pumpMic();
+
+  // B button: cycle mode
+  if (M5.BtnB.wasPressed()) {
+    modeIdx = (modeIdx + 1) % 3;
+    String m = String("{\"type\":\"mode_set\",\"value\":\"") + MODES[modeIdx] + "\"}";
+    ws.sendTXT(m);
+    drawScreen();
+  }
+}
