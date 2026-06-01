@@ -85,6 +85,37 @@ test('full push-to-talk turn produces transcript, text and audio', async () => {
   }
 });
 
+test('text_in produces a user transcript echo + assistant reply + audio', async () => {
+  process.env.VOICE_PROVIDER = 'mock';
+  process.env.PORT = '0';
+  process.env.DEVICE_TOKENS = '';
+  const srv = await startServer();
+  const { port } = srv.httpServer.address();
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+  const c = collector(ws);
+  try {
+    await new Promise((r) => ws.on('open', r));
+    ws.send(JSON.stringify({ type: 'hello', device_id: 'cb-text' }));
+    await c.until((m) => m.type === 'auth_ok');
+
+    ws.send(JSON.stringify({ type: 'text_in', text: '自己PRが苦手です' }));
+    const userT = await c.until((m) => m.type === 'transcript' && m.role === 'user');
+    assert.equal(userT.text, '自己PRが苦手です');
+    const reply = await c.until((m) => m.type === 'assistant_text');
+    assert.ok(reply.text.length > 0);
+    await c.until((m) => m.type === 'audio_out_end');
+    await c.until((m) => m.type === 'state' && m.value === 'idle');
+
+    // Empty text is rejected.
+    ws.send(JSON.stringify({ type: 'text_in', text: '   ' }));
+    const err = await c.until((m) => m.type === 'error');
+    assert.match(err.message, /text/);
+  } finally {
+    ws.close();
+    await srv.close();
+  }
+});
+
 test('mode_set to interview is accepted; invalid mode errors', async () => {
   process.env.VOICE_PROVIDER = 'mock';
   process.env.PORT = '0';

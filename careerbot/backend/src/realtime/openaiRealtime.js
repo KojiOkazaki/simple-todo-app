@@ -82,6 +82,19 @@ export class OpenAIRealtimeProvider extends VoiceSession {
     this.#send({ type: 'response.create' });
   }
 
+  submitText(text) {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.#send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text }],
+      },
+    });
+    this.#send({ type: 'response.create' });
+  }
+
   #onMessage(data) {
     let evt;
     try {

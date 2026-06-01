@@ -55,6 +55,13 @@ curl localhost:8080/healthz
 
 OpenAI Realtime に接続するには `.env` で `VOICE_PROVIDER=openai` と `OPENAI_API_KEY=...` を設定します。
 オフライン開発・CI では `VOICE_PROVIDER=mock`（既定）で API キー不要で全パイプラインを検証できます。
+ローカル構成（Whisper + Gemma + VOICEVOX）は `VOICE_PROVIDER=local`（[docs/local-voice.md](docs/local-voice.md)）。
+
+### ブラウザ・テストクライアント
+
+デバイスが無くても、サーバー起動後に **http://localhost:8080/client** を開けば、
+文字入力（`text_in`）またはマイク（押して話す）で CareerBot と会話できます。
+`local` 構成なら ずんだもん の声で応答が返ります（文字入力なら Whisper 不要）。
 
 詳しくは [`backend/README.md`](backend/README.md)。
 

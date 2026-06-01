@@ -37,15 +37,23 @@ export class MockProvider extends VoiceSession {
   }
 
   commitAudio() {
+    this.#respond('(音声入力)');
+  }
+
+  submitText(text) {
+    this.#respond(text || '(空のメッセージ)');
+  }
+
+  #respond(userText) {
     if (this.closed) return;
     const reply = CANNED_REPLIES[this.turn % CANNED_REPLIES.length];
     this.turn += 1;
     this.audioBytes = 0;
 
-    // Emit a (placeholder) user transcript, then assistant text + audio.
+    // Emit user transcript, then assistant text + synthetic audio.
     queueMicrotask(() => {
       if (this.closed) return;
-      this.emit('transcript', 'user', '(音声入力)');
+      this.emit('transcript', 'user', userText);
       this.emit('transcript', 'assistant', reply);
       this.emit('assistant_text', reply);
 

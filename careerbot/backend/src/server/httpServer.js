@@ -10,6 +10,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 // careerbot/backend/src/server -> careerbot/assets/logo
 const LOGO_DIR = path.resolve(here, '../../../assets/logo');
+const CLIENT_HTML = path.join(here, 'client.html');
 
 // Preference order: the original raster export wins over the vector fallback.
 // Drop careerbot.png into assets/logo/ and it is served automatically.
@@ -90,6 +91,19 @@ export function createHttpServer({ status }) {
     if (req.url === '/' || req.url === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(splashHtml(status()));
+      return;
+    }
+
+    // Browser test client: type or speak to CareerBot, hear the reply.
+    if (req.url === '/client' || req.url === '/client.html') {
+      try {
+        const html = await readFile(CLIENT_HTML, 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'client not found' }));
+      }
       return;
     }
 

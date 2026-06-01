@@ -21,6 +21,11 @@ export class VoiceSession extends EventEmitter {
   commitAudio() {
     throw new Error('not implemented');
   }
+  // Submit a typed user turn (skips STT). Same event output as a voice turn.
+  // eslint-disable-next-line no-unused-vars
+  submitText(_text) {
+    throw new Error('not implemented');
+  }
   // eslint-disable-next-line no-unused-vars
   setSystemPrompt(_prompt) {
     throw new Error('not implemented');

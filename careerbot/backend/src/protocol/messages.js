@@ -11,6 +11,7 @@ export const MSG = Object.freeze({
   HELLO: 'hello',
   AUDIO_IN_START: 'audio_in_start',
   AUDIO_IN_END: 'audio_in_end',
+  TEXT_IN: 'text_in', // typed user turn (skips STT)
   MODE_SET: 'mode_set',
   BYE: 'bye',
   PONG: 'pong',

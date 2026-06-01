@@ -40,15 +40,22 @@ export class LocalPipelineProvider extends VoiceSession {
     if (this.closed) return;
     const pcm = Buffer.concat(this.chunks);
     this.chunks = [];
-    this.#run(pcm).catch((err) => {
+    this.#run({ pcm }).catch((err) => {
       if (!this.closed) this.emit('error', err);
     });
   }
 
-  async #run(pcm) {
-    // 1) STT (Whisper). Skip if no audio captured.
-    let userText = '';
-    if (pcm.length > 0) {
+  submitText(text) {
+    if (this.closed) return;
+    this.#run({ text }).catch((err) => {
+      if (!this.closed) this.emit('error', err);
+    });
+  }
+
+  async #run({ pcm, text }) {
+    // 1) STT (Whisper) for voice turns; typed turns skip straight to the LLM.
+    let userText = text || '';
+    if (!userText && pcm && pcm.length > 0) {
       userText = await this.#transcribe(pcm);
     }
     if (this.closed) return;

@@ -50,6 +50,7 @@ S→D  { "type": "state", "value": "idle" }
 | `audio_in_start` | `sample_rate`, `channels`, `format` | 録音開始宣言 |
 | (binary) | – | PCM16 音声チャンク |
 | `audio_in_end` | – | 録音終了 → 応答生成要求 |
+| `text_in` | `text` | 文字入力ターン（STT を飛ばして直接 LLM へ。テスト/補助入力用） |
 | `mode_set` | `value`（`general`/`interview`/`motivation`） | モード切替 |
 | `bye` | – | セッション終了 |
 | `pong` | – | heartbeat 応答 |

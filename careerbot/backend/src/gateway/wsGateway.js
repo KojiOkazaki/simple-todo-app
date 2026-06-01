@@ -100,6 +100,15 @@ export class WsGateway {
         ctx.assistantBuffer = '';
         ctx.provider.commitAudio();
         return;
+      case MSG.TEXT_IN:
+        if (typeof msg.text !== 'string' || !msg.text.trim()) {
+          this.#sendJson(ws, build.error(ERROR_CODE.BAD_MESSAGE, 'text required'));
+          return;
+        }
+        this.#setState(ws, STATE.THINKING);
+        ctx.assistantBuffer = '';
+        ctx.provider.submitText(msg.text.trim());
+        return;
       case MSG.BYE:
         ws.close();
         return;
