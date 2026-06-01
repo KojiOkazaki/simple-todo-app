@@ -4,7 +4,20 @@
 リレーサーバーへ WebSocket 接続し、A=押して話す / B=モード切替 / 画面に状態とロゴ、
 スピーカーで応答音声を再生します（プロトコルは `../docs/api.md`）。
 
-## 必要ライブラリ（Arduino IDE: ライブラリマネージャ）
+## ⚡ ターミナルだけで書き込む（推奨）
+
+GUI 不要。`config.h` を編集したら、Mac でこれ1コマンド：
+```bash
+cd careerbot/firmware-arduino
+bash flash.sh                 # ポート自動検出（または bash flash.sh /dev/cu.usbmodemXXXX）
+```
+`flash.sh` が arduino-cli・ESP32コア・ライブラリの導入 → ロゴ埋め込み(PNG→RGB565、要 Pillow)
+→ コンパイル → 書き込み まで自動で行います。シリアル確認は
+`arduino-cli monitor -p <PORT> -c baudrate=115200`。
+
+> ロゴ埋め込みに Pillow を使います（`pip3 install pillow`）。無い場合は簡易表示にフォールバック。
+
+## 必要ライブラリ（手動 / Arduino IDE を使う場合）
 - **M5Unified**（M5Stack）
 - **ArduinoJson**（Benoit Blanchon）
 - **WebSockets**（Markus Sattler / links2004）
