@@ -3,166 +3,181 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>CareerBot テストクライアント</title>
+<title>CareerBot — StopWatch プレビュー</title>
 <style>
-  body { margin:0; font-family:system-ui, sans-serif; background:#0f1830; color:#eef2ff;
-    display:flex; flex-direction:column; height:100vh; }
-  header { display:flex; align-items:center; gap:12px; padding:12px 16px; background:#16224a; }
-  header img { width:40px; height:40px; }
-  header h1 { font-size:18px; margin:0; }
-  .state { margin-left:auto; font-size:13px; background:#1b2a4e; padding:6px 12px; border-radius:999px; }
-  #log { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; }
-  .msg { max-width:75%; padding:10px 14px; border-radius:14px; line-height:1.5; white-space:pre-wrap; }
-  .user { align-self:flex-end; background:#2f86d8; }
-  .assistant { align-self:flex-start; background:#1b2a4e; }
-  .sys { align-self:center; color:#9fb3d8; font-size:12px; }
-  footer { display:flex; gap:8px; padding:12px 16px; background:#16224a; flex-wrap:wrap; }
-  input, button, select { font-size:15px; border-radius:10px; border:none; padding:10px 14px; }
-  #text { flex:1; min-width:180px; }
-  button { background:#2f86d8; color:#fff; cursor:pointer; }
-  button.secondary { background:#1b2a4e; }
-  button#mic.rec { background:#e0556b; }
-  button:disabled { opacity:.5; cursor:default; }
+  :root{ color-scheme:dark; }
+  body{ margin:0; min-height:100vh; background:#0a1020; color:#eef2ff;
+    font-family:system-ui,sans-serif; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px; padding:20px; }
+
+  /* M5Stack StopWatch 風の端末 */
+  .device{ width:260px; background:#11182f; border-radius:34px; padding:18px;
+    box-shadow:0 10px 40px rgba(0,0,0,.5), inset 0 0 0 2px #1d2a4e; }
+  .screen{ aspect-ratio:1/1.15; border-radius:24px; background:radial-gradient(circle at 50% 30%, #16224a, #0c1430);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:16px; gap:10px; overflow:hidden; }
+  .screen img{ width:74px; height:74px; transition:transform .3s; }
+  .screen.speaking img{ transform:scale(1.06); }
+  .state{ font-size:15px; color:#9fb3d8; letter-spacing:.5px; }
+  .caption{ font-size:16px; line-height:1.45; min-height:3em; }
+  .dot{ display:inline-block; width:7px;height:7px;border-radius:50%;background:#2f86d8;margin:0 2px;
+    animation:b 1s infinite alternate; }
+  .dot:nth-child(2){animation-delay:.2s} .dot:nth-child(3){animation-delay:.4s}
+  @keyframes b{ from{opacity:.3} to{opacity:1} }
+
+  .btns{ display:flex; gap:10px; }
+  button{ font-size:14px; border:none; border-radius:12px; padding:11px 16px; color:#fff;
+    background:#1b2a4e; cursor:pointer; }
+  #talk{ background:#2f86d8; font-weight:600; }
+  #talk.rec{ background:#e0556b; }
+  button:disabled{ opacity:.45; cursor:default; }
+
+  .test{ display:flex; gap:8px; width:296px; }
+  .test input{ flex:1; font-size:14px; border:none; border-radius:10px; padding:10px 12px; }
+  .hint{ font-size:12px; color:#6b7ca8; }
 </style>
 </head>
 <body>
-  <header>
-    <img src="/logo" alt="logo"/>
-    <h1>CareerBot</h1>
-    <select id="mode" class="secondary" title="モード">
-      <option value="general">通常相談</option>
-      <option value="interview">面接練習</option>
-      <option value="motivation">志望動機</option>
-    </select>
-    <span class="state" id="state">接続中…</span>
-  </header>
-  <div id="log"></div>
-  <footer>
-    <input id="text" placeholder="メッセージを入力（例: 自己PRが苦手です）" autocomplete="off"/>
+  <div class="device">
+    <div class="screen" id="screen">
+      <img src="/logo" alt="logo"/>
+      <div class="state" id="state">接続中…</div>
+      <div class="caption" id="caption"></div>
+    </div>
+  </div>
+
+  <div class="btns">
+    <button id="talk" title="押している間だけ話す">🎤 A 話す</button>
+    <button id="mode" class="secondary">B モード: 相談</button>
+  </div>
+
+  <div class="test">
+    <input id="text" placeholder="テスト入力（文字でも会話できます）" autocomplete="off"/>
     <button id="send">送信</button>
-    <button id="mic" class="secondary" title="押している間だけ録音">🎤 押して話す</button>
-  </footer>
+  </div>
+  <div class="hint" id="hint">A=押して話す（要 Whisper） / 文字入力でも試せます</div>
 
 <script>
-const log = document.getElementById('log');
 const stateEl = document.getElementById('state');
+const capEl = document.getElementById('caption');
+const screenEl = document.getElementById('screen');
 const textEl = document.getElementById('text');
+const sendBtn = document.getElementById('send');
+const talkBtn = document.getElementById('talk');
+const modeBtn = document.getElementById('mode');
 
-function add(role, text) {
-  const d = document.createElement('div');
-  d.className = 'msg ' + role;
-  d.textContent = text;
-  log.appendChild(d); log.scrollTop = log.scrollHeight;
-  return d;
-}
-function setState(s) { stateEl.textContent = s; }
+const MODES = ['general','interview','motivation'];
+const MODE_LABEL = { general:'相談', interview:'面接練習', motivation:'志望動機' };
+let modeIdx = 0;
+let busy = false;            // single-flight: one turn at a time
+let outRate = 16000, outChunks = [], curSource = null, assistant = '';
+
+const STATE_JP = { idle:'待機中', listening:'聞いています…', thinking:'考えています…',
+                   speaking:'アドバイス中', error:'エラー' };
+
+function setState(v){ stateEl.textContent = STATE_JP[v] || v; screenEl.classList.toggle('speaking', v==='speaking'); }
+function setBusy(b){ busy=b; sendBtn.disabled=b; talkBtn.disabled=b; }
+function thinkingDots(){ capEl.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>'; }
 
 // ---- WebSocket ----
 const ws = new WebSocket(`ws://${location.host}/ws`);
 ws.binaryType = 'arraybuffer';
-let outRate = 16000, outChunks = [], assistantEl = null;
-
-ws.onopen = () => {
-  ws.send(JSON.stringify({ type:'hello', device_id:'web-client', firmware_version:'web', device_token:'cb-dev-token' }));
-};
-ws.onclose = () => setState('切断');
-ws.onerror = () => setState('エラー');
+ws.onopen = () => ws.send(JSON.stringify({ type:'hello', device_id:'web-client', device_token:'cb-dev-token' }));
+ws.onclose = () => setState('error');
+ws.onerror = () => setState('error');
 
 ws.onmessage = (ev) => {
-  if (ev.data instanceof ArrayBuffer) { outChunks.push(new Uint8Array(ev.data)); return; }
+  if (ev.data instanceof ArrayBuffer){ outChunks.push(new Uint8Array(ev.data)); return; }
   const m = JSON.parse(ev.data);
-  switch (m.type) {
-    case 'auth_ok': setState('待機中'); add('sys', 'セッション開始: ' + m.session_id); break;
-    case 'state': setState({idle:'待機中',listening:'聞いています…',thinking:'考えています…',speaking:'話しています…',error:'エラー'}[m.value] || m.value); break;
-    case 'transcript':
-      if (m.role === 'user') add('user', m.text);
-      break;
+  switch(m.type){
+    case 'auth_ok': setState('idle'); capEl.textContent='ボタンを押して相談'; break;
+    case 'state': setState(m.value); if(m.value==='thinking') thinkingDots(); if(m.value==='idle') setBusy(false); break;
+    case 'transcript': break; // device screen stays voice-first; user text not echoed
     case 'assistant_text':
-      if (!assistantEl) assistantEl = add('assistant', '');
-      assistantEl.textContent += m.text; log.scrollTop = log.scrollHeight; break;
+      assistant += m.text; capEl.textContent = assistant; break;
     case 'audio_out_start': outRate = m.sample_rate || 16000; outChunks = []; break;
-    case 'audio_out_end': playPcm(outChunks, outRate); outChunks = []; assistantEl = null; break;
-    case 'error': add('sys', 'エラー: ' + m.code + ' ' + (m.message||'')); break;
+    case 'audio_out_end': playPcm(outChunks, outRate); outChunks = []; break;
+    case 'error': setState('error'); capEl.textContent = m.message || m.code; setBusy(false); break;
     case 'ping': ws.send(JSON.stringify({ type:'pong' })); break;
   }
 };
 
 // ---- send text ----
-function sendText() {
-  const t = textEl.value.trim(); if (!t || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({ type:'text_in', text:t })); textEl.value=''; assistantEl=null;
+function sendText(){
+  const t = textEl.value.trim();
+  if(!t || busy || ws.readyState!==1) return;
+  assistant=''; capEl.textContent=''; setBusy(true);
+  ws.send(JSON.stringify({ type:'text_in', text:t }));
+  textEl.value='';
 }
-document.getElementById('send').onclick = sendText;
-textEl.addEventListener('keydown', e => { if (e.key==='Enter') sendText(); });
-document.getElementById('mode').onchange = (e) =>
-  ws.send(JSON.stringify({ type:'mode_set', value:e.target.value }));
+sendBtn.onclick = sendText;
+textEl.addEventListener('keydown', e => { if(e.key==='Enter') sendText(); });
 
-// ---- playback (PCM16 -> Web Audio) ----
+modeBtn.onclick = () => {
+  modeIdx = (modeIdx+1)%3;
+  modeBtn.textContent = 'B モード: ' + MODE_LABEL[MODES[modeIdx]];
+  ws.send(JSON.stringify({ type:'mode_set', value:MODES[modeIdx] }));
+};
+
+// ---- playback (stops any previous so it never double-speaks) ----
 let playCtx;
-function playPcm(chunks, rate) {
-  if (!chunks.length) return;
+function playPcm(chunks, rate){
+  if(!chunks.length) return;
+  if(curSource){ try{ curSource.stop(); }catch{} curSource=null; }
   const total = chunks.reduce((n,c)=>n+c.length,0);
   const buf = new Uint8Array(total); let o=0;
-  for (const c of chunks){ buf.set(c,o); o+=c.length; }
+  for(const c of chunks){ buf.set(c,o); o+=c.length; }
   const i16 = new Int16Array(buf.buffer, 0, Math.floor(total/2));
   playCtx = playCtx || new (window.AudioContext||window.webkitAudioContext)();
   const ab = playCtx.createBuffer(1, i16.length, rate);
   const f32 = ab.getChannelData(0);
-  for (let i=0;i<i16.length;i++) f32[i]=i16[i]/32768;
-  const src = playCtx.createBufferSource(); src.buffer=ab; src.connect(playCtx.destination); src.start();
+  for(let i=0;i<i16.length;i++) f32[i]=i16[i]/32768;
+  const src = playCtx.createBufferSource(); src.buffer=ab; src.connect(playCtx.destination);
+  curSource = src; src.onended = () => { if(curSource===src) curSource=null; };
+  src.start();
 }
 
 // ---- mic capture (push-to-talk, 16k PCM16) via AudioWorklet ----
-const micBtn = document.getElementById('mic');
-
-// Worklet runs on the audio thread: converts Float32 frames to PCM16 and
-// posts them back to the main thread (transferable ArrayBuffer).
 const CAPTURE_WORKLET = `
 class CaptureProcessor extends AudioWorkletProcessor {
-  process(inputs) {
+  process(inputs){
     const ch = inputs[0][0];
-    if (ch) {
+    if(ch){
       const i16 = new Int16Array(ch.length);
-      for (let i = 0; i < ch.length; i++) {
-        const s = Math.max(-1, Math.min(1, ch[i]));
-        i16[i] = s < 0 ? s * 32768 : s * 32767;
-      }
-      this.port.postMessage(i16.buffer, [i16.buffer]);
+      for(let i=0;i<ch.length;i++){ const s=Math.max(-1,Math.min(1,ch[i])); i16[i]=s<0?s*32768:s*32767; }
+      this.port.postMessage(i16.buffer,[i16.buffer]);
     }
     return true;
   }
 }
 registerProcessor('capture', CaptureProcessor);
 `;
-
-let micCtx, micStream, micNode, micSink, recording = false;
-async function startMic() {
-  if (recording || ws.readyState !== 1) return;
+let micCtx, micStream, micNode, micSink, recording=false;
+async function startMic(){
+  if(recording || busy || ws.readyState!==1) return;
   micStream = await navigator.mediaDevices.getUserMedia({ audio:{ channelCount:1, echoCancellation:true } });
   micCtx = new (window.AudioContext||window.webkitAudioContext)({ sampleRate:16000 });
-  await micCtx.audioWorklet.addModule(
-    URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type:'application/javascript' }))
-  );
+  await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([CAPTURE_WORKLET],{type:'application/javascript'})));
   const srcNode = micCtx.createMediaStreamSource(micStream);
-  micNode = new AudioWorkletNode(micCtx, 'capture');
-  micNode.port.onmessage = (e) => { if (recording && ws.readyState === 1) ws.send(e.data); };
-  // Zero-gain sink keeps the node pulled by the graph without echoing the mic.
-  micSink = micCtx.createGain(); micSink.gain.value = 0;
+  micNode = new AudioWorkletNode(micCtx,'capture');
+  micNode.port.onmessage = (e)=>{ if(recording && ws.readyState===1) ws.send(e.data); };
+  micSink = micCtx.createGain(); micSink.gain.value=0;
+  assistant=''; capEl.textContent='';
   ws.send(JSON.stringify({ type:'audio_in_start', sample_rate:16000, channels:1, format:'pcm16' }));
-  recording = true; micBtn.classList.add('rec'); assistantEl = null;
+  recording=true; talkBtn.classList.add('rec');
   srcNode.connect(micNode); micNode.connect(micSink); micSink.connect(micCtx.destination);
 }
-function stopMic() {
-  if (!recording) return;
-  recording = false; micBtn.classList.remove('rec');
-  try { micNode.disconnect(); micStream.getTracks().forEach(t=>t.stop()); micCtx.close(); } catch {}
+function stopMic(){
+  if(!recording) return;
+  recording=false; talkBtn.classList.remove('rec'); setBusy(true);
+  try{ micNode.disconnect(); micStream.getTracks().forEach(t=>t.stop()); micCtx.close(); }catch{}
   ws.send(JSON.stringify({ type:'audio_in_end' }));
 }
-micBtn.addEventListener('mousedown', startMic);
-micBtn.addEventListener('mouseup', stopMic);
-micBtn.addEventListener('mouseleave', stopMic);
-micBtn.addEventListener('touchstart', (e)=>{e.preventDefault();startMic();});
-micBtn.addEventListener('touchend', (e)=>{e.preventDefault();stopMic();});
+talkBtn.addEventListener('mousedown', startMic);
+talkBtn.addEventListener('mouseup', stopMic);
+talkBtn.addEventListener('mouseleave', stopMic);
+talkBtn.addEventListener('touchstart', e=>{ e.preventDefault(); startMic(); });
+talkBtn.addEventListener('touchend', e=>{ e.preventDefault(); stopMic(); });
 </script>
 </body>
 </html>
