@@ -19,6 +19,15 @@
 #include "hal/hal.h"
 #include "careerbot_config.h"
 
+// Embedded CareerBot logo (RGB565). Copy logo_img.h into main/ alongside this
+// file; if absent, a text header is shown instead.
+#if defined(__has_include)
+# if __has_include("logo_img.h")
+#  include "logo_img.h"
+#  define HAVE_LOGO 1
+# endif
+#endif
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -38,6 +47,7 @@ static std::string g_caption = "";
 static volatile bool g_dirty = true;
 static volatile bool g_playPending = false;
 static std::vector<int16_t> g_playbuf;
+static int g_inRate = 16000;  // sample rate of received audio (from audio_out_start)
 static esp_websocket_client_handle_t g_ws = nullptr;
 
 static int g_modeIdx = 0;
@@ -56,31 +66,56 @@ static int g_sampleIdx = 0;
 static EventGroupHandle_t g_wifiEvents;
 #define WIFI_CONNECTED_BIT BIT0
 
+// Linear resample of mono PCM16 (e.g. server 16k -> device codec rate).
+static std::vector<int16_t> resample16(const std::vector<int16_t>& in, int fromRate, int toRate) {
+    if (fromRate == toRate || in.empty()) return in;
+    size_t outN = (size_t)((uint64_t)in.size() * toRate / fromRate);
+    std::vector<int16_t> out(outN);
+    for (size_t i = 0; i < outN; i++) {
+        double srcPos = (double)i * fromRate / toRate;
+        size_t i0 = (size_t)srcPos;
+        size_t i1 = (i0 + 1 < in.size()) ? i0 + 1 : in.size() - 1;
+        double frac = srcPos - i0;
+        out[i] = (int16_t)(in[i0] + (in[i1] - in[i0]) * frac);
+    }
+    return out;
+}
+
 // ---- drawing ----
 static void draw() {
     auto& d = GetHAL().getDisplay();
     int cx = d.width() / 2;
     d.fillScreen(TFT_BLACK);
-    d.setTextDatum(middle_center);
 
+    int y;
+#ifdef HAVE_LOGO
+    d.setSwapBytes(true);
+    d.pushImage(cx - logo_w / 2, 8, logo_w, logo_h, logo_data);
+    y = 8 + logo_h + 16;
+#else
+    d.setTextDatum(middle_center);
     d.setFont(&fonts::efontJA_24);
     d.setTextColor(TFT_WHITE);
     d.drawString("CareerBot", cx, 64);
+    y = 120;
+#endif
 
+    d.setTextDatum(middle_center);
+    d.setFont(&fonts::efontJA_24);
     d.setTextColor(0x9CDB);
-    d.drawString(g_state.c_str(), cx, d.height() / 2 - 30);
+    d.drawString(g_state.c_str(), cx, y);
 
     // reply caption (wrapped)
     d.setFont(&fonts::efontJA_16);
     d.setTextColor(TFT_WHITE);
     d.setTextWrap(true);
-    d.setCursor(40, d.height() / 2 + 6);
+    d.setCursor(40, y + 28);
     d.print(g_caption.c_str());
 
     d.setTextDatum(middle_center);
     d.setTextColor(0x6B7C);
     std::string hint = std::string("A:質問  B:") + MODE_JP[g_modeIdx];
-    d.drawString(hint.c_str(), cx, d.height() - 28);
+    d.drawString(hint.c_str(), cx, d.height() - 26);
 }
 
 static void setState(const char* s) { g_state = s; g_dirty = true; }
@@ -136,6 +171,8 @@ static void onJson(const char* data, int len) {
             const char* t = cJSON_GetStringValue(cJSON_GetObjectItem(j, "text"));
             if (t) { g_caption += t; g_dirty = true; }
         } else if (!strcmp(type, "audio_out_start")) {
+            cJSON* sr = cJSON_GetObjectItem(j, "sample_rate");
+            if (cJSON_IsNumber(sr)) g_inRate = sr->valueint;
             g_playbuf.clear();
         } else if (!strcmp(type, "audio_out_end")) {
             g_playPending = true;
@@ -217,8 +254,10 @@ extern "C" void app_main() {
 
         if (g_playPending) {
             g_playPending = false;
+            int outRate = GetHAL().getAudioSampleRate();
+            std::vector<int16_t> pcm = resample16(g_playbuf, g_inRate, outRate);
             GetHAL().vibrate(60);
-            GetHAL().audioPlay(g_playbuf, false);  // blocking play, then free
+            GetHAL().audioPlay(pcm, false);  // blocking play at the codec's rate
             g_playbuf.clear();
             setState("待機中");
         }

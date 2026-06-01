@@ -16,6 +16,7 @@ cd ~/M5StopWatch-UserDemo
 cp main/main.cpp main/main.cpp.demo.bak
 cp ~/careerbot-repo/careerbot/firmware-idf-careerbot/main.cpp        main/main.cpp
 cp ~/careerbot-repo/careerbot/firmware-idf-careerbot/careerbot_config.h main/careerbot_config.h
+cp ~/careerbot-repo/careerbot/firmware-idf-careerbot/logo_img.h      main/logo_img.h
 ```
 
 ### 2. 接続設定を編集
