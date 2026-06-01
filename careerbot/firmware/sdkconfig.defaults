@@ -1,0 +1,21 @@
+# CareerBot firmware default sdkconfig (override as needed via menuconfig).
+# Target board: M5Stack StopWatch (ESP32-S3 class).
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# FreeRTOS
+CONFIG_FREERTOS_HZ=1000
+
+# Wi-Fi
+CONFIG_ESP32_WIFI_STATIC_RX_BUFFER_NUM=16
+CONFIG_ESP32_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+
+# Higher main task stack for audio/JSON work
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# Enable WebSocket client component (esp_websocket_client)
+CONFIG_WS_TRANSPORT=y
+
+# PSRAM (audio buffers)
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
