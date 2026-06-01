@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CareerBot brand logo (vector recreation).
+  A dice cube with a "play" lollipop sprout on a teal->blue gradient tile.
+  This is a hand-built SVG approximation of the supplied artwork; replace with
+  the original PNG/SVG export anytime (see assets/logo/README.md).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="CareerBot logo">
+  <defs>
+    <linearGradient id="cbTile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#36c0a0"/>
+      <stop offset="0.5" stop-color="#23a7c2"/>
+      <stop offset="1" stop-color="#2f86d8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- gradient background tile -->
+  <rect x="118" y="150" width="300" height="300" rx="14" fill="url(#cbTile)"/>
+
+  <g fill="none" stroke="#1b2a4e" stroke-width="22" stroke-linejoin="round" stroke-linecap="round">
+    <!-- stick from cube up to the play head -->
+    <line x1="300" y1="250" x2="356" y2="150"/>
+  </g>
+
+  <!-- play head: navy circle + white triangle -->
+  <circle cx="366" cy="116" r="58" fill="#1b2a4e"/>
+  <path d="M348 86 L348 146 L398 116 Z" fill="#ffffff"/>
+
+  <!-- dice cube (white faces, navy outline), slightly tilted -->
+  <g transform="rotate(-8 256 310)">
+    <!-- faces fill -->
+    <polygon points="256,168 384,243 256,318 128,243" fill="#ffffff"/>
+    <polygon points="128,243 256,318 256,462 128,387" fill="#ffffff"/>
+    <polygon points="256,318 384,243 384,387 256,462" fill="#ffffff"/>
+    <!-- outline + internal edges -->
+    <g fill="none" stroke="#1b2a4e" stroke-width="22" stroke-linejoin="round" stroke-linecap="round">
+      <polygon points="256,168 384,243 384,387 256,462 128,387 128,243"/>
+      <polyline points="128,243 256,318 384,243"/>
+      <line x1="256" y1="318" x2="256" y2="462"/>
+    </g>
+    <!-- two pips on the left face -->
+    <circle cx="180" cy="318" r="17" fill="#1b2a4e"/>
+    <circle cx="212" cy="372" r="17" fill="#1b2a4e"/>
+  </g>
+</svg>

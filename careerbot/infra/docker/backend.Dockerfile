@@ -6,6 +6,8 @@ COPY backend/package.json backend/package-lock.json* ./
 RUN npm install --omit=dev
 
 COPY backend/src ./src
+# Brand assets (served at /logo.svg, used by the splash page).
+COPY assets ../assets
 
 ENV PORT=8080
 EXPOSE 8080
