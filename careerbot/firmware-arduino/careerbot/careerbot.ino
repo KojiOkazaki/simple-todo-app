@@ -231,6 +231,16 @@ void loop() {
   M5.update();
   ws.loop();
 
+  // Heartbeat: lets a freshly-opened serial monitor read the panel size /
+  // connection status without needing a device reset.
+  static uint32_t lastLog = 0;
+  if (millis() - lastLog > 3000) {
+    lastLog = millis();
+    Serial.printf("[CareerBot] alive board=%d disp=%dx%d wifi=%d ws=%d\n",
+                  (int)M5.getBoard(), (int)M5.Display.width(), (int)M5.Display.height(),
+                  WiFi.status() == WL_CONNECTED, ws.isConnected());
+  }
+
   // A button: push-to-talk (hold to talk)
   if (M5.BtnA.wasPressed())  startListening();
   if (M5.BtnA.wasReleased()) stopListening();
