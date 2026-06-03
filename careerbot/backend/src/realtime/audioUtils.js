@@ -23,7 +23,8 @@ export function encodeWav(pcm, sampleRate, channels = 1) {
   return Buffer.concat([header, pcm]);
 }
 
-// Parse a WAV buffer into { sampleRate, channels, bitsPerSample, pcm }.
+// Parse a WAV buffer into { sampleRate, channels, pcm } where pcm is always
+// 16-bit signed LE (converted from 8/16/24/32-bit PCM or 32-bit float).
 // Scans chunks so it tolerates extra metadata before `data`.
 export function decodeWav(buf) {
   if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF') {
@@ -32,23 +33,60 @@ export function decodeWav(buf) {
   let sampleRate = 0;
   let channels = 1;
   let bitsPerSample = 16;
+  let audioFormat = 1; // 1 = PCM, 3 = IEEE float
   let offset = 12; // past RIFF....WAVE
-  let pcm = null;
+  let raw = null;
   while (offset + 8 <= buf.length) {
     const id = buf.toString('ascii', offset, offset + 4);
     const size = buf.readUInt32LE(offset + 4);
     const body = offset + 8;
     if (id === 'fmt ') {
+      audioFormat = buf.readUInt16LE(body + 0);
       channels = buf.readUInt16LE(body + 2);
       sampleRate = buf.readUInt32LE(body + 4);
       bitsPerSample = buf.readUInt16LE(body + 14);
     } else if (id === 'data') {
-      pcm = buf.subarray(body, body + size);
+      raw = buf.subarray(body, body + size);
     }
     offset = body + size + (size % 2); // chunks are word-aligned
   }
-  if (!pcm) throw new Error('no data chunk in WAV');
+  if (!raw) throw new Error('no data chunk in WAV');
+
+  const pcm = to16(raw, audioFormat, bitsPerSample);
   return { sampleRate, channels, bitsPerSample, pcm };
+}
+
+// Convert raw sample bytes to 16-bit signed LE PCM.
+function to16(raw, fmt, bits) {
+  if (fmt === 1 && bits === 16) return raw;
+  let n;
+  let read; // (i) -> int16 value
+  if (fmt === 3 && bits === 32) {
+    n = Math.floor(raw.length / 4);
+    read = (i) => {
+      let v = Math.round(raw.readFloatLE(i * 4) * 32767);
+      return v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+    };
+  } else if (fmt === 1 && bits === 24) {
+    n = Math.floor(raw.length / 3);
+    read = (i) => raw.readInt16LE(i * 3 + 1); // top 16 bits (signed LE)
+  } else if (fmt === 1 && bits === 32) {
+    n = Math.floor(raw.length / 4);
+    read = (i) => raw.readInt32LE(i * 4) >> 16;
+  } else if (fmt === 1 && bits === 8) {
+    n = raw.length;
+    read = (i) => (raw[i] - 128) << 8;
+  } else {
+    return raw; // unknown: best effort
+  }
+  const out = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i++) {
+    let v = read(i);
+    if (v > 32767) v = 32767;
+    else if (v < -32768) v = -32768;
+    out.writeInt16LE(v, i * 2);
+  }
+  return out;
 }
 
 // Resample mono PCM16 via linear interpolation. Returns a new Buffer.
