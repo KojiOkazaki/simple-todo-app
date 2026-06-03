@@ -48,6 +48,9 @@ static std::string g_state   = LABEL_CONNECTING;
 static std::string g_caption = "";
 static std::string g_pending = "";  // reply text, shown only when audio starts
 static volatile bool g_dirty = true;
+static volatile bool g_playPending = false;
+static std::vector<int16_t> g_playbuf;   // accumulated output audio (one message)
+static std::vector<int16_t> g_playOut;    // resampled, persists during async play
 static int g_inRate = 16000;  // sample rate of received audio (from audio_out_start)
 static bool g_recording = false;
 static int64_t g_pressUs = 0;
@@ -210,12 +213,9 @@ static void onJson(const char* data, int len) {
         } else if (!strcmp(type, "audio_out_start")) {
             cJSON* sr = cJSON_GetObjectItem(j, "sample_rate");
             if (cJSON_IsNumber(sr)) g_inRate = sr->valueint;
-            GetHAL().vibrate(60);
-            g_caption = g_pending;  // reveal text as the voice starts
-            g_pending.clear();
-            setState(LABEL_SPEAKING);
+            g_playbuf.clear();
         } else if (!strcmp(type, "audio_out_end")) {
-            // streaming playback finishes as chunks arrive; nothing to do
+            g_playPending = true;  // play the whole clip at once (smooth)
         } else if (!strcmp(type, "error")) {
             const char* m = cJSON_GetStringValue(cJSON_GetObjectItem(j, "message"));
             g_caption = m ? m : LABEL_ERROR;
@@ -239,12 +239,9 @@ static void ws_handler(void*, esp_event_base_t, int32_t id, void* data) {
             break;
         }
         case WEBSOCKET_EVENT_DATA:
-            if (e->op_code == 0x2) {  // binary PCM16 chunk -> resample & stream out
+            if (e->op_code == 0x2) {  // binary PCM16 chunk -> accumulate
                 const int16_t* p = (const int16_t*)e->data_ptr;
-                size_t n = e->data_len / 2;
-                std::vector<int16_t> in(p, p + n);
-                std::vector<int16_t> out = resample16(in, g_inRate, GetHAL().getAudioSampleRate());
-                GetHAL().audioWrite(out.data(), out.size());
+                g_playbuf.insert(g_playbuf.end(), p, p + e->data_len / 2);
             } else if (e->op_code == 0x1 && e->data_len > 0) {  // text JSON
                 onJson(e->data_ptr, e->data_len);
             }
@@ -323,8 +320,17 @@ extern "C" void app_main() {
             g_dirty = true;
         }
 
-        // Audio is streamed to the codec in the websocket task (audioWrite);
-        // the main loop just keeps the UI/ticker animating.
+        if (g_playPending) {
+            g_playPending = false;
+            g_playOut = resample16(g_playbuf, g_inRate, GetHAL().getAudioSampleRate());
+            g_playbuf.clear();
+            GetHAL().vibrate(60);
+            g_caption = g_pending;  // reveal text (if any) as the voice starts
+            g_pending.clear();
+            setState(LABEL_SPEAKING);
+            GetHAL().audioPlay(g_playOut, true);  // one smooth playback (HAL streams it)
+        }
+
         if (g_dirty) { drawStatic(); g_dirty = false; }
         animateTicker();  // no-op when there is no caption
         vTaskDelay(pdMS_TO_TICKS(30));
