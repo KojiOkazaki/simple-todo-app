@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { MockProvider } from './mockProvider.js';
 import { OpenAIRealtimeProvider } from './openaiRealtime.js';
 import { LocalPipelineProvider } from './localPipelineProvider.js';
+import { SoundboardProvider } from './soundboardProvider.js';
 
 export { VoiceSession } from './voiceSession.js';
 
@@ -16,6 +17,8 @@ export function createVoiceProvider() {
       return new OpenAIRealtimeProvider();
     case 'local':
       return new LocalPipelineProvider();
+    case 'soundboard':
+      return new SoundboardProvider();
     case 'mock':
     default:
       return new MockProvider();

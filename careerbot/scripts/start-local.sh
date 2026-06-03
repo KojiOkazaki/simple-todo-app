@@ -20,7 +20,7 @@ ollama list >/dev/null 2>&1 && echo "  ollama OK" || echo "  ! ollama not respon
 echo "[3/4] Relay server :8090..."
 cd "$HERE/../backend"
 lsof -ti:8090 | xargs kill -9 2>/dev/null || true
-nohup env VOICE_PROVIDER=local \
+nohup env VOICE_PROVIDER="${VOICE_PROVIDER:-local}" \
   LLM_MODEL="${LLM_MODEL:-gemma3:4b}" \
   STT_MODEL="${STT_MODEL:-Systran/faster-whisper-small}" \
   VOICEVOX_SPEAKER="${VOICEVOX_SPEAKER:-3}" \
