@@ -70,6 +70,18 @@ export function resamplePcm16(pcm, fromRate, toRate) {
   return out;
 }
 
+// Apply a linear gain to PCM16 in place, clamped to the int16 range.
+export function applyGain(pcm, gain) {
+  if (!gain || gain === 1) return pcm;
+  for (let i = 0; i + 1 < pcm.length; i += 2) {
+    let v = Math.round(pcm.readInt16LE(i) * gain);
+    if (v > 32767) v = 32767;
+    else if (v < -32768) v = -32768;
+    pcm.writeInt16LE(v, i);
+  }
+  return pcm;
+}
+
 // Downmix interleaved stereo PCM16 to mono (averages channels).
 export function toMono(pcm, channels) {
   if (channels <= 1) return pcm;

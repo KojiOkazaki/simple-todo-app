@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { VoiceSession } from './voiceSession.js';
-import { decodeWav, resamplePcm16, toMono } from './audioUtils.js';
+import { decodeWav, resamplePcm16, toMono, applyGain } from './audioUtils.js';
 
 export class SoundboardProvider extends VoiceSession {
   constructor() {
@@ -59,6 +59,7 @@ export class SoundboardProvider extends VoiceSession {
         const wav = fs.readFileSync(file);
         const { sampleRate, channels, pcm } = decodeWav(wav);
         const out = resamplePcm16(toMono(pcm, channels), sampleRate, config.audio.sampleRate);
+        applyGain(out, config.local.gain);
         const frame = config.audio.sampleRate * 0.05 * 2;
         for (let i = 0; i < out.length && !this.closed; i += frame) {
           this.emit('audio', out.subarray(i, Math.min(i + frame, out.length)));

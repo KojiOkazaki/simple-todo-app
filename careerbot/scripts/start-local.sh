@@ -26,6 +26,7 @@ nohup env VOICE_PROVIDER="${VOICE_PROVIDER:-local}" \
   VOICEVOX_SPEAKER="${VOICEVOX_SPEAKER:-3}" \
   VOICE_OUTPUT="${VOICE_OUTPUT:-voicevox}" \
   SOUNDBOARD_DIR="${SOUNDBOARD_DIR:-$HERE/../clips}" \
+  AUDIO_GAIN="${AUDIO_GAIN:-1}" \
   PORT=8090 node src/index.js > /tmp/careerbot.log 2>&1 &
 sleep 2
 

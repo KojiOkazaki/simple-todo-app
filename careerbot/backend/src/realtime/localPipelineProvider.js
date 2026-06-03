@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config.js';
 import { VoiceSession } from './voiceSession.js';
-import { encodeWav, decodeWav, resamplePcm16, toMono } from './audioUtils.js';
+import { encodeWav, decodeWav, resamplePcm16, toMono, applyGain } from './audioUtils.js';
 
 // fetch with a timeout so a hung local service surfaces an error instead of
 // leaving the device stuck on "考えています…".
@@ -172,6 +172,7 @@ export class LocalPipelineProvider extends VoiceSession {
     const { sampleRate, channels, pcm } = decodeWav(wav);
     const mono = toMono(pcm, channels);
     const out = resamplePcm16(mono, sampleRate, config.audio.sampleRate);
+    applyGain(out, config.local.gain);
 
     // Stream ~50ms frames so the device can start playback promptly.
     const frame = config.audio.sampleRate * 0.05 * 2; // bytes per 50ms
@@ -205,6 +206,7 @@ export class LocalPipelineProvider extends VoiceSession {
     const { sampleRate, channels, pcm } = decodeWav(wav);
     const mono = toMono(pcm, channels);
     const out = resamplePcm16(mono, sampleRate, config.audio.sampleRate);
+    applyGain(out, config.local.gain);
     const frame = config.audio.sampleRate * 0.05 * 2;
     for (let i = 0; i < out.length && !this.closed; i += frame) {
       this.emit('audio', out.subarray(i, Math.min(i + frame, out.length)));

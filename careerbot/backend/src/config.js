@@ -55,6 +55,8 @@ export const config = {
     // the AI text; it plays a clip while the answer shows as on-screen text.
     voiceOutput: (process.env.VOICE_OUTPUT || 'voicevox').toLowerCase(),
     soundboardDir: process.env.SOUNDBOARD_DIR || './clips',
+    // Digital output gain (>1 = louder; watch for clipping). e.g. 2.0
+    gain: Number(process.env.AUDIO_GAIN || 1),
     // Max conversation history turns kept for LLM context.
     historyTurns: Number(process.env.LOCAL_HISTORY_TURNS || 12),
   },
