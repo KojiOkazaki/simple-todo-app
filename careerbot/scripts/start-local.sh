@@ -23,6 +23,7 @@ lsof -ti:8090 | xargs kill -9 2>/dev/null || true
 nohup env VOICE_PROVIDER=local \
   LLM_MODEL="${LLM_MODEL:-gemma3:4b}" \
   STT_MODEL="${STT_MODEL:-Systran/faster-whisper-small}" \
+  VOICEVOX_SPEAKER="${VOICEVOX_SPEAKER:-3}" \
   PORT=8090 node src/index.js > /tmp/careerbot.log 2>&1 &
 sleep 2
 
@@ -36,4 +37,7 @@ echo "  -> The device's SERVER_URI (config.h) must use this IP."
 echo "     If it changed, update config.h and re-flash, or set the router to"
 echo "     reserve a fixed IP for this Mac."
 echo
+echo "  Voice (VOICEVOX speaker): ${VOICEVOX_SPEAKER:-3}  (override: VOICEVOX_SPEAKER=8 bash $(basename "$0"))"
+echo
 echo "Done. Power on the StopWatch; it auto-connects. Logs: tail -f /tmp/careerbot.log"
+echo "List voices: curl -s localhost:50021/speakers | python3 -c \"import sys,json;[print(st['id'],s['name'],st['name']) for s in json.load(sys.stdin) for st in s['styles']]\""
