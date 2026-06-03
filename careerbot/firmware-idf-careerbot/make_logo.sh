@@ -13,7 +13,12 @@ OUT="${2:-$HOME/M5StopWatch-UserDemo/main/logo_img.h}"
 W="${3:-200}"
 
 [ -f "$SRC" ] || { echo "Not found: $SRC"; exit 1; }
-python3 -c "import PIL" 2>/dev/null || pip3 install pillow 2>/dev/null || pip3 install --break-system-packages pillow
+# Install Pillow into the SAME interpreter that runs the script below
+# (pip3 and python3 can point at different Pythons).
+python3 -c "import PIL" 2>/dev/null \
+  || python3 -m pip install pillow 2>/dev/null \
+  || python3 -m pip install --user pillow 2>/dev/null \
+  || python3 -m pip install --break-system-packages pillow
 
 python3 - "$SRC" "$OUT" "$W" <<'PY'
 import sys
