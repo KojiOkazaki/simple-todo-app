@@ -120,6 +120,12 @@ static void drawStatic() {
         d.setTextDatum(middle_center);
         d.setTextColor(0x9CDB);
         d.drawString(g_state.c_str(), cx, H - 54);  // inside the round edge
+
+        if (CREDIT_TEXT[0]) {  // optional asset credit (e.g. third-party voice/logo)
+            d.setFont(&fonts::lgfxJapanGothic_16);
+            d.setTextColor(0x6B7C);
+            d.drawString(CREDIT_TEXT, cx, 30);  // top-center, inside the round edge
+        }
     }
 #endif
     g_tickerInit = false;  // restart the ticker for the new caption

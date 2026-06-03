@@ -9,6 +9,8 @@
 // commitAudio() the STT->LLM->TTS pipeline runs and streams results back
 // through the same VoiceSession event contract the gateway already uses.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { config } from '../config.js';
 import { VoiceSession } from './voiceSession.js';
 import { encodeWav, decodeWav, resamplePcm16, toMono } from './audioUtils.js';
@@ -143,6 +145,10 @@ export class LocalPipelineProvider extends VoiceSession {
 
   async #speak(text) {
     if (!text) return;
+    // Soundboard mode: play a fixed local WAV clip instead of synthesizing.
+    if (this.cfg.voiceOutput === 'soundboard') {
+      return this.#speakClip();
+    }
     const base = this.cfg.ttsUrl.replace(/\/$/, '');
     const spk = this.cfg.ttsSpeaker;
 
@@ -169,6 +175,37 @@ export class LocalPipelineProvider extends VoiceSession {
 
     // Stream ~50ms frames so the device can start playback promptly.
     const frame = config.audio.sampleRate * 0.05 * 2; // bytes per 50ms
+    for (let i = 0; i < out.length && !this.closed; i += frame) {
+      this.emit('audio', out.subarray(i, Math.min(i + frame, out.length)));
+    }
+  }
+
+  // Play one fixed WAV clip from the soundboard dir (rotates through them).
+  // The clip files stay local (never committed); the AI answer is shown as
+  // on-screen text, not synthesized.
+  #speakClip() {
+    if (!this._clips) {
+      try {
+        this._clips = fs
+          .readdirSync(this.cfg.soundboardDir)
+          .filter((f) => f.toLowerCase().endsWith('.wav'))
+          .map((f) => path.join(this.cfg.soundboardDir, f))
+          .sort();
+      } catch {
+        this._clips = [];
+      }
+      this._clipIdx = 0;
+    }
+    if (!this._clips.length) {
+      console.warn(`[local] soundboard: no .wav clips in ${this.cfg.soundboardDir}`);
+      return;
+    }
+    const file = this._clips[this._clipIdx++ % this._clips.length];
+    const wav = fs.readFileSync(file);
+    const { sampleRate, channels, pcm } = decodeWav(wav);
+    const mono = toMono(pcm, channels);
+    const out = resamplePcm16(mono, sampleRate, config.audio.sampleRate);
+    const frame = config.audio.sampleRate * 0.05 * 2;
     for (let i = 0; i < out.length && !this.closed; i += frame) {
       this.emit('audio', out.subarray(i, Math.min(i + frame, out.length)));
     }

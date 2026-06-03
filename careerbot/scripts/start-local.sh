@@ -24,6 +24,8 @@ nohup env VOICE_PROVIDER=local \
   LLM_MODEL="${LLM_MODEL:-gemma3:4b}" \
   STT_MODEL="${STT_MODEL:-Systran/faster-whisper-small}" \
   VOICEVOX_SPEAKER="${VOICEVOX_SPEAKER:-3}" \
+  VOICE_OUTPUT="${VOICE_OUTPUT:-voicevox}" \
+  SOUNDBOARD_DIR="${SOUNDBOARD_DIR:-$HERE/../clips}" \
   PORT=8090 node src/index.js > /tmp/careerbot.log 2>&1 &
 sleep 2
 

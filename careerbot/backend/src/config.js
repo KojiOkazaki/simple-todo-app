@@ -50,6 +50,11 @@ export const config = {
     // VOICEVOX engine base URL + speaker (ずんだもん ノーマル = 3).
     ttsUrl: process.env.VOICEVOX_URL || 'http://localhost:50021',
     ttsSpeaker: Number(process.env.VOICEVOX_SPEAKER || 3),
+    // Voice output mode: 'voicevox' (synthesize) or 'soundboard' (play fixed
+    // local WAV clips, e.g. a character voice kit). Soundboard does NOT speak
+    // the AI text; it plays a clip while the answer shows as on-screen text.
+    voiceOutput: (process.env.VOICE_OUTPUT || 'voicevox').toLowerCase(),
+    soundboardDir: process.env.SOUNDBOARD_DIR || './clips',
     // Max conversation history turns kept for LLM context.
     historyTurns: Number(process.env.LOCAL_HISTORY_TURNS || 12),
   },

@@ -10,3 +10,7 @@
 
 #define DEVICE_ID    "stopwatch-01"
 #define DEVICE_TOKEN "cb-dev-token"
+
+// Optional on-screen credit line shown on the idle screen (UTF-8). Leave empty
+// for none. Use this to attribute third-party assets per their license.
+#define CREDIT_TEXT  ""
