@@ -14,3 +14,12 @@
 // Optional on-screen credit line shown on the idle screen (UTF-8). Leave empty
 // for none. Use this to attribute third-party assets per their license.
 #define CREDIT_TEXT  ""
+
+// On-screen state labels (UTF-8). Customize per app/character.
+#define LABEL_CONNECTING   "接続中…"
+#define LABEL_IDLE         "スタンバイ"
+#define LABEL_LISTENING    "きいています"
+#define LABEL_THINKING     "…"
+#define LABEL_SPEAKING     "おはなし中"
+#define LABEL_DISCONNECTED "切断・再接続中"
+#define LABEL_ERROR        "エラー"

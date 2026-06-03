@@ -44,7 +44,7 @@
 static const char* TAG = "careerbot";
 
 // ---- shared UI state ----
-static std::string g_state   = "接続中…";
+static std::string g_state   = LABEL_CONNECTING;
 static std::string g_caption = "";
 static std::string g_pending = "";  // reply text, shown only when audio starts
 static volatile bool g_dirty = true;
@@ -194,13 +194,13 @@ static void onJson(const char* data, int len) {
     if (type) {
         if (!strcmp(type, "auth_ok")) {
             g_caption = "";
-            setState("待機中");
+            setState(LABEL_IDLE);
         } else if (!strcmp(type, "state")) {
             const char* v = cJSON_GetStringValue(cJSON_GetObjectItem(j, "value"));
             if (v) {
-                if (!strcmp(v, "thinking")) setState("考えています…");
-                else if (!strcmp(v, "speaking")) setState("アドバイス中");
-                else if (!strcmp(v, "idle")) setState("待機中");
+                if (!strcmp(v, "thinking")) setState(LABEL_THINKING);
+                else if (!strcmp(v, "speaking")) setState(LABEL_SPEAKING);
+                else if (!strcmp(v, "idle")) setState(LABEL_IDLE);
             }
         } else if (!strcmp(type, "assistant_text")) {
             // Buffer the reply; it's revealed when playback starts (synced
@@ -213,13 +213,13 @@ static void onJson(const char* data, int len) {
             GetHAL().vibrate(60);
             g_caption = g_pending;  // reveal text as the voice starts
             g_pending.clear();
-            setState("アドバイス中");
+            setState(LABEL_SPEAKING);
         } else if (!strcmp(type, "audio_out_end")) {
             // streaming playback finishes as chunks arrive; nothing to do
         } else if (!strcmp(type, "error")) {
             const char* m = cJSON_GetStringValue(cJSON_GetObjectItem(j, "message"));
-            g_caption = m ? m : "エラー";
-            setState("エラー");
+            g_caption = m ? m : LABEL_ERROR;
+            setState(LABEL_ERROR);
         } else if (!strcmp(type, "ping")) {
             wsSend("{\"type\":\"pong\"}");
         }
@@ -250,7 +250,7 @@ static void ws_handler(void*, esp_event_base_t, int32_t id, void* data) {
             }
             break;
         case WEBSOCKET_EVENT_DISCONNECTED:
-            setState("切断・再接続中");
+            setState(LABEL_DISCONNECTED);
             break;
         default: break;
     }
@@ -288,7 +288,7 @@ extern "C" void app_main() {
             g_caption = "";
             g_pending = "";
             GetHAL().vibrate(60);
-            setState("聞いています…");
+            setState(LABEL_LISTENING);
             wsSend("{\"type\":\"audio_in_start\",\"sample_rate\":16000,\"channels\":1,\"format\":\"pcm16\"}");
         }
         if (g_recording && GetHAL().btnA.isPressed()) {
@@ -303,7 +303,7 @@ extern "C" void app_main() {
             if (g_recording) {
                 g_recording = false;
                 wsSend("{\"type\":\"audio_in_end\"}");
-                setState("考えています…");
+                setState(LABEL_THINKING);
             } else {  // quick tap -> sample question (works without Whisper)
                 GetHAL().vibrate(60);
                 const char* q = SAMPLES[g_sampleIdx++ % (sizeof(SAMPLES) / sizeof(SAMPLES[0]))];
@@ -312,7 +312,7 @@ extern "C" void app_main() {
                 char msg[256];
                 snprintf(msg, sizeof(msg), "{\"type\":\"text_in\",\"text\":\"%s\"}", q);
                 wsSend(msg);
-                setState("考えています…");
+                setState(LABEL_THINKING);
             }
         }
         if (GetHAL().btnB.wasPressed()) {
