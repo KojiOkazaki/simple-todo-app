@@ -9,11 +9,18 @@ The conversation history is kept so the user can ask follow-up questions
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 
 import ollama
 
 logger = logging.getLogger(__name__)
+
+
+def _heartbeat(stop: threading.Event) -> None:
+    """Print a dot every couple of seconds until ``stop`` is set."""
+    while not stop.wait(2.0):
+        print(".", end="", flush=True)
 
 SYSTEM_PROMPT_JA = (
     "あなたはデスクトップロボット『Reachy Mini』の目と頭脳です。"
@@ -72,25 +79,25 @@ class GemmaVisionChat:
         logger.debug("Querying %s with prompt: %s", self._model, prompt)
         if stream:
             parts = []
-            in_thinking = False
             answer_started = False
-            for chunk in self._chat(stream=True):
-                message = chunk.get("message", {}) or {}
-                thinking = message.get("thinking") or ""
-                piece = message.get("content") or ""
-                if thinking and not piece:
-                    if not in_thinking:
-                        print("（考え中）", end="", flush=True)
-                        in_thinking = True
-                    print(".", end="", flush=True)  # progress dots while reasoning
-                if piece:
+            # The first vision call loads the model and runs image prefill, which
+            # is silent. A heartbeat prints dots so it never looks frozen.
+            stop_beat = threading.Event()
+            beat = threading.Thread(target=_heartbeat, args=(stop_beat,), daemon=True)
+            beat.start()
+            try:
+                for chunk in self._chat(stream=True):
+                    piece = (chunk.get("message", {}) or {}).get("content") or ""
+                    if not piece:
+                        continue  # skip empty/thinking-only chunks
                     if not answer_started:
-                        if in_thinking:
-                            print()  # finish the dots line
-                        print("Reachy> ", end="", flush=True)
+                        stop_beat.set()
+                        print("\nReachy> ", end="", flush=True)
                         answer_started = True
                     print(piece, end="", flush=True)
                     parts.append(piece)
+            finally:
+                stop_beat.set()
             if answer_started:
                 print(flush=True)
             answer = "".join(parts).strip()
