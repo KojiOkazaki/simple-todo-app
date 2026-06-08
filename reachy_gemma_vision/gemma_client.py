@@ -24,23 +24,29 @@ from typing import Any, Dict, Iterator, List, Optional
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT_JA = (
-    "あなたは卓上ロボット『Reachy Mini』です。カメラで周りを見ることができます。"
-    "ユーザーと親しみやすく自然な日本語で雑談する相棒として振る舞ってください。"
-    "毎ターン、今カメラに映っている画像が一緒に渡されます。"
-    "見えているものについて聞かれたら具体的に説明し、それ以外の話題なら"
-    "普通に楽しく会話してください（必要なら見えている様子を会話のきっかけにしてOK）。"
-    "返答は短め（1〜3文）で、音声で読み上げるので箇条書きや記号は使わず、"
-    "話し言葉として自然に答えてください。分からないことは正直に言ってください。"
+    "あなたは卓上ロボット『Reachy Mini』です。カメラで周りを見ることもできます。"
+    "ユーザーと自然な日本語で会話する、親しみやすい相棒として振る舞ってください。"
+    "最優先は『ユーザーが今言ったこと』に普通に・自然に応答することです。"
+    "雑談には雑談で、相談には共感して返します。"
+    "画像が一緒に渡されることがありますが、それは参考情報にすぎません。"
+    "見た目について聞かれたとき（『何が見える』『これ何』『誰』『何色』など）"
+    "だけ、その画像の内容に触れてください。"
+    "聞かれてもいないのにカメラの映像をいちいち実況・説明しないこと。"
+    "自分が何者か聞かれたら『Reachy Mini という小さなロボット』だと答えます。"
+    "返答は短く（1〜2文）、音声で読み上げるので記号や箇条書きは使わず、"
+    "温かい話し言葉で。分からないことは正直に言ってください。"
 )
 
 SYSTEM_PROMPT_EN = (
-    "You are a desktop robot called 'Reachy Mini' that can see through its "
-    "camera. Act as a friendly companion who chats naturally with the user. "
-    "Each turn you also receive the current camera image. If asked about what "
-    "you see, describe it concretely; otherwise just have a warm, normal "
-    "conversation (you may use what you see as a conversation starter). Keep "
-    "replies short (1-3 sentences); they are read aloud, so use natural spoken "
-    "sentences without bullet points or symbols. Be honest when unsure."
+    "You are a small desktop robot called 'Reachy Mini' that can also see "
+    "through a camera. Be a friendly companion who chats naturally. Your top "
+    "priority is to respond naturally to what the user just said: chat back to "
+    "small talk, empathize with worries. An image may be attached, but it is "
+    "only reference. Only talk about what you see when actually asked about it "
+    "(e.g. 'what do you see', 'what is this', 'who is that', 'what colour'). Do "
+    "not narrate the camera view unprompted. If asked who you are, say you are "
+    "a little robot called Reachy Mini. Keep replies short (1-2 sentences), "
+    "spoken-style, no symbols or bullet points. Be honest when unsure."
 )
 
 DEFAULT_QUESTION_JA = "今、カメラに何が見えますか？"
@@ -85,10 +91,19 @@ class GemmaVisionChat:
     def describe(
         self, image_jpeg: bytes, user_text: Optional[str] = None, stream: bool = True
     ) -> str:
-        """Send the current frame (+ optional question) to Gemma; return its reply.
+        """Back-compat helper: respond with an image attached."""
+        return self.respond(user_text, image_jpeg, stream)
 
-        Streams the answer to stdout as it is generated, with a heartbeat during
-        the silent model-load/image-prefill phase so it never looks frozen.
+    def respond(
+        self,
+        user_text: Optional[str] = None,
+        image_jpeg: Optional[bytes] = None,
+        stream: bool = True,
+    ) -> str:
+        """Reply to the user, optionally with the current frame attached.
+
+        For chit-chat, call without an image so the model just converses; pass
+        ``image_jpeg`` only when the user asks about what's visible.
         """
         prompt = (user_text or "").strip() or self.default_question
 
@@ -97,10 +112,10 @@ class GemmaVisionChat:
 
         # Keep only the newest image in history to bound the context size.
         self._strip_old_images()
-        image_b64 = base64.b64encode(image_jpeg).decode("ascii")
-        self._messages.append(
-            {"role": "user", "content": prompt, "images": [image_b64]}
-        )
+        message: Dict[str, Any] = {"role": "user", "content": prompt}
+        if image_jpeg is not None:
+            message["images"] = [base64.b64encode(image_jpeg).decode("ascii")]
+        self._messages.append(message)
 
         logger.debug("Querying %s with prompt: %s", self._model, prompt)
         parts: List[str] = []
@@ -136,15 +151,19 @@ class GemmaVisionChat:
         self._messages.append({"role": "assistant", "content": answer})
         return answer
 
-    def _describe_cli(self, image_jpeg: bytes, prompt: str, stream: bool) -> str:
-        """Describe via `ollama run` (subprocess) — the path that works for
+    def _describe_cli(self, image_jpeg, prompt: str, stream: bool) -> str:
+        """Respond via `ollama run` (subprocess) — the path that works for
         images when the HTTP API stalls. Single-turn (no chat history)."""
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp.write(image_jpeg)
-            img_path = tmp.name
+        img_path = None
+        if image_jpeg is not None:
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp.write(image_jpeg)
+                img_path = tmp.name
 
         # `ollama run` detects the image path embedded in the prompt text.
-        full_prompt = f"{self._system_message['content']}\n\n{prompt}\n{img_path}"
+        full_prompt = f"{self._system_message['content']}\n\n{prompt}"
+        if img_path:
+            full_prompt += f"\n{img_path}"
 
         stop_beat = threading.Event()
         if stream:
@@ -158,10 +177,11 @@ class GemmaVisionChat:
             raise RuntimeError("ollama run timed out (300s).") from exc
         finally:
             stop_beat.set()
-            try:
-                os.unlink(img_path)
-            except OSError:
-                pass
+            if img_path:
+                try:
+                    os.unlink(img_path)
+                except OSError:
+                    pass
 
         if proc.returncode != 0:
             raise RuntimeError(f"ollama run failed: {proc.stderr.strip()}")

@@ -39,6 +39,10 @@ class WhisperSTT:
             audio = audio.astype(np.float32)
 
         segments, _ = self._model.transcribe(
-            audio, language=self._language, vad_filter=True
+            audio,
+            language=self._language,
+            vad_filter=True,
+            # Reduce hallucinated repetitions like "こんにちは。…こんにちは。".
+            condition_on_previous_text=False,
         )
         return "".join(segment.text for segment in segments).strip()

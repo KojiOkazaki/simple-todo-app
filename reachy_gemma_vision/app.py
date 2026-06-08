@@ -133,19 +133,41 @@ def output_audio(robot, args, samples, samplerate, index: int) -> None:
         robot.speak(samples, samplerate)
 
 
+# Words that signal the user is asking about what the camera sees.
+_VISION_HINTS = (
+    "見え", "見て", "見る", "みえ", "みて", "映", "写", "これ", "それ", "あれ",
+    "何が", "なに", "なん", "色", "誰", "だれ", "背景", "後ろ", "うしろ", "周り",
+    "まわり", "部屋", "持っ", "どこ", "読ん", "文字", "数え", "いくつ", "表情",
+    "look", "see", "this", "that", "color", "colour", "who", "what is", "what's",
+    "behind", "around", "room", "holding", "read", "count", "wearing", "image",
+    "picture", "camera",
+)
+
+
+def _wants_vision(user_text) -> bool:
+    """True if the user's message is asking about the visible scene."""
+    if not user_text:  # empty Enter / auto-greeting -> describe the scene
+        return True
+    low = user_text.lower()
+    return any(hint in low for hint in _VISION_HINTS)
+
+
 def describe_and_speak(robot, chat, tts, args, user_text, is_japanese) -> None:
-    """Capture a frame, ask Gemma about it, print and speak the answer."""
-    print("📷 撮影中..." if is_japanese else "📷 Capturing...", flush=True)
-    jpeg = robot.capture_jpeg()
+    """Reply to the user; look at the camera only when the message needs it."""
+    use_vision = _wants_vision(user_text)
+
+    jpeg = None
+    if use_vision:
+        print("📷 撮影中..." if is_japanese else "📷 Capturing...", flush=True)
+        jpeg = robot.capture_jpeg()
 
     print(
-        "🧠 Gemma 4 が解析中（初回はモデル読み込みで時間がかかります）..."
-        if is_japanese
-        else "🧠 Gemma 4 is analyzing (first run loads the model, please wait)...",
+        ("🧠 解析中..." if use_vision else "🧠 考え中...") if is_japanese
+        else ("🧠 Looking..." if use_vision else "🧠 Thinking..."),
         flush=True,
     )
-    # describe() streams "Reachy> ...答え..." to stdout itself.
-    answer = chat.describe(jpeg, user_text or None)
+    # respond() streams "Reachy> ...答え..." to stdout itself.
+    answer = chat.respond(user_text or None, jpeg)
 
     print("🔊 発話中..." if is_japanese else "🔊 Speaking...", flush=True)
     samples, samplerate = tts.synthesize(answer)
