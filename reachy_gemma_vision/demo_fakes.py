@@ -63,9 +63,14 @@ def _chunks(text: str, size: int = 8):
         yield text[i : i + size]
 
 
-def _decode_scene(image_bytes) -> str:
+def _decode_scene(image) -> str:
     try:
-        tag = bytes(image_bytes).decode("utf-8")
+        if isinstance(image, str):  # base64 string (as the real client sends)
+            import base64
+
+            tag = base64.b64decode(image).decode("utf-8")
+        else:
+            tag = bytes(image).decode("utf-8")
     except Exception:  # noqa: BLE001
         return "目の前の様子"
     for scene_id, desc in _SCENES:

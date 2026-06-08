@@ -8,6 +8,7 @@ The conversation history is kept so the user can ask follow-up questions
 
 from __future__ import annotations
 
+import base64
 import logging
 import threading
 from typing import Any, Dict, List, Optional
@@ -47,9 +48,14 @@ DEFAULT_QUESTION_EN = "What do you see in the camera right now?"
 class GemmaVisionChat:
     """Stateful multimodal chat with Gemma 4 running on a local Ollama server."""
 
-    def __init__(self, host: str, model: str, language: str = "ja") -> None:
+    def __init__(
+        self, host: str, model: str, language: str = "ja", think: Optional[bool] = None
+    ) -> None:
         self._client = ollama.Client(host=host)
         self._model = model
+        # think=None -> don't send the param (mirror `ollama run`, which works).
+        # Forcing think=False seemed to stall image requests on some Ollama builds.
+        self._think = think
         self._is_japanese = language.lower().startswith("ja")
         system = SYSTEM_PROMPT_JA if self._is_japanese else SYSTEM_PROMPT_EN
         self._system_message: Dict[str, Any] = {"role": "system", "content": system}
@@ -72,8 +78,11 @@ class GemmaVisionChat:
         # Keep only the newest image in the history to bound the context size:
         # older turns stay as text, which is enough to maintain the conversation.
         self._strip_old_images()
+        # Pass the image as a base64 string (the format Ollama's HTTP API expects)
+        # rather than raw bytes, which some ollama-python versions mishandle.
+        image_b64 = base64.b64encode(image_jpeg).decode("ascii")
         self._messages.append(
-            {"role": "user", "content": prompt, "images": [image_jpeg]}
+            {"role": "user", "content": prompt, "images": [image_b64]}
         )
 
         logger.debug("Querying %s with prompt: %s", self._model, prompt)
@@ -116,22 +125,19 @@ class GemmaVisionChat:
         return answer
 
     def _chat(self, stream: bool):
-        """Call Ollama with thinking disabled (falling back if unsupported).
-
-        ``keep_alive`` keeps the model resident for 30 min so re-running the
-        app soon after doesn't pay the multi-GB load cost again.
+        """Call Ollama. ``keep_alive`` keeps the model resident for 30 min so
+        re-running the app soon after doesn't pay the multi-GB load cost again.
         """
+        kwargs = dict(
+            model=self._model, messages=self._messages, stream=stream, keep_alive="30m"
+        )
+        if self._think is not None:
+            kwargs["think"] = self._think
         try:
-            return self._client.chat(
-                model=self._model, messages=self._messages, stream=stream,
-                think=False, keep_alive="30m",
-            )
+            return self._client.chat(**kwargs)
         except TypeError:
-            # Older ollama-python without the `think` parameter.
-            return self._client.chat(
-                model=self._model, messages=self._messages, stream=stream,
-                keep_alive="30m",
-            )
+            kwargs.pop("think", None)  # older ollama-python without `think`
+            return self._client.chat(**kwargs)
 
     def reset(self) -> None:
         """Forget the conversation, keeping only the system prompt."""

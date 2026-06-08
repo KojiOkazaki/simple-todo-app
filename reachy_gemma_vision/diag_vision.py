@@ -12,6 +12,7 @@ the first (model-loading) image call takes.
 from __future__ import annotations
 
 import argparse
+import base64
 import time
 
 import cv2
@@ -21,7 +22,7 @@ import ollama
 from config import Config
 
 
-def make_test_image() -> bytes:
+def make_test_image() -> str:
     img = np.full((480, 640, 3), 255, dtype=np.uint8)  # white background
     cv2.circle(img, (320, 200), 110, (0, 0, 255), -1)  # red filled circle (BGR)
     cv2.putText(img, "HELLO", (150, 430), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 6)
@@ -29,14 +30,12 @@ def make_test_image() -> bytes:
     ok, buffer = cv2.imencode(".jpg", img)
     if not ok:
         raise RuntimeError("Failed to encode the test image.")
-    return buffer.tobytes()
+    return base64.b64encode(buffer.tobytes()).decode("ascii")
 
 
 def chat_stream(client, model, messages):
-    try:
-        return client.chat(model=model, messages=messages, stream=True, think=False)
-    except TypeError:
-        return client.chat(model=model, messages=messages, stream=True)
+    # Mirror `ollama run` (which works): don't force think off; let it stream.
+    return client.chat(model=model, messages=messages, stream=True, keep_alive="30m")
 
 
 def main() -> int:
@@ -46,7 +45,7 @@ def main() -> int:
     parser.add_argument("--ollama-host", default=cfg.ollama_host)
     args = parser.parse_args()
 
-    jpeg = make_test_image()
+    image_b64 = make_test_image()
     print(f"model={args.model}  host={args.ollama_host}")
     print("test image: 白背景に赤い丸と『HELLO』の文字 (diag_test.jpg に保存)")
     print("画像を送信中... 初回はモデル読み込みで時間がかかります。")
@@ -56,7 +55,7 @@ def main() -> int:
         {
             "role": "user",
             "content": "この画像には何が写っていますか？色や文字も含めて日本語で説明してください。",
-            "images": [jpeg],
+            "images": [image_b64],
         }
     ]
 
