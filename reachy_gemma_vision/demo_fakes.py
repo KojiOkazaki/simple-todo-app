@@ -34,7 +34,7 @@ def _install_fake_ollama() -> None:
         def __init__(self, host=None):
             self.host = host
 
-        def chat(self, model, messages):
+        def chat(self, model, messages, stream=False, think=None, **kwargs):
             # Pull the freshest scene from the attached image, and the question.
             scene_desc = "目の前の様子"
             user_text = ""
@@ -47,10 +47,20 @@ def _install_fake_ollama() -> None:
                     scene_desc = _decode_scene(images[0])
 
             reply = _fake_gemma_reply(scene_desc, user_text)
+            if stream:
+                return (
+                    {"message": {"role": "assistant", "content": piece}}
+                    for piece in _chunks(reply)
+                )
             return {"message": {"role": "assistant", "content": reply}}
 
     module.Client = _FakeClient
     sys.modules["ollama"] = module
+
+
+def _chunks(text: str, size: int = 8):
+    for i in range(0, len(text), size):
+        yield text[i : i + size]
 
 
 def _decode_scene(image_bytes) -> str:

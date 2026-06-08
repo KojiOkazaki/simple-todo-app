@@ -108,13 +108,14 @@ def describe_and_speak(robot, chat, tts, args, user_text, is_japanese) -> None:
     jpeg = robot.capture_jpeg()
 
     print(
-        "🧠 Gemma 4 が考えています（初回はモデル読み込みで時間がかかります）..."
+        "🧠 Gemma 4 が解析中（初回はモデル読み込みで時間がかかります）..."
         if is_japanese
-        else "🧠 Gemma 4 is thinking (first run loads the model, please wait)...",
+        else "🧠 Gemma 4 is analyzing (first run loads the model, please wait)...",
         flush=True,
     )
-    answer = chat.describe(jpeg, user_text or None)
-    print(f"\nReachy> {answer}\n", flush=True)
+    print("\nReachy> ", end="", flush=True)
+    answer = chat.describe(jpeg, user_text or None)  # streams to stdout
+    print("\n", flush=True)
 
     print("🔊 発話中..." if is_japanese else "🔊 Speaking...", flush=True)
     samples, samplerate = tts.synthesize(answer)

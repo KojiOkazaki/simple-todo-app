@@ -52,8 +52,14 @@ class GemmaVisionChat:
     def default_question(self) -> str:
         return DEFAULT_QUESTION_JA if self._is_japanese else DEFAULT_QUESTION_EN
 
-    def describe(self, image_jpeg: bytes, user_text: Optional[str] = None) -> str:
-        """Send the current frame (+ optional question) to Gemma and return its reply."""
+    def describe(
+        self, image_jpeg: bytes, user_text: Optional[str] = None, stream: bool = True
+    ) -> str:
+        """Send the current frame (+ optional question) to Gemma and return its reply.
+
+        Streams the answer to stdout as it is generated (so a slow first call
+        doesn't look frozen) and disables Gemma's "thinking" trace for speed.
+        """
         prompt = (user_text or "").strip() or self.default_question
 
         # Keep only the newest image in the history to bound the context size:
@@ -64,8 +70,18 @@ class GemmaVisionChat:
         )
 
         logger.debug("Querying %s with prompt: %s", self._model, prompt)
-        response = self._client.chat(model=self._model, messages=self._messages)
-        answer = (response.get("message", {}) or {}).get("content", "").strip()
+        if stream:
+            parts = []
+            for chunk in self._chat(stream=True):
+                piece = (chunk.get("message", {}) or {}).get("content", "")
+                if piece:
+                    print(piece, end="", flush=True)
+                    parts.append(piece)
+            answer = "".join(parts).strip()
+        else:
+            response = self._chat(stream=False)
+            answer = (response.get("message", {}) or {}).get("content", "").strip()
+
         if not answer:
             answer = (
                 "うまく説明できませんでした。"
@@ -75,6 +91,18 @@ class GemmaVisionChat:
 
         self._messages.append({"role": "assistant", "content": answer})
         return answer
+
+    def _chat(self, stream: bool):
+        """Call Ollama with thinking disabled (falling back if unsupported)."""
+        try:
+            return self._client.chat(
+                model=self._model, messages=self._messages, stream=stream, think=False
+            )
+        except TypeError:
+            # Older ollama-python without the `think` parameter.
+            return self._client.chat(
+                model=self._model, messages=self._messages, stream=stream
+            )
 
     def reset(self) -> None:
         """Forget the conversation, keeping only the system prompt."""

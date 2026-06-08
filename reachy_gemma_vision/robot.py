@@ -62,6 +62,7 @@ class ReachyRobot:
             time.sleep(0.1)
         if frame is None:
             raise RuntimeError("Failed to grab a frame from the Reachy Mini camera.")
+        frame = _downscale(frame, max_dim=1024)  # smaller image -> faster Gemma
         ok, buffer = cv2.imencode(
             ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality]
         )
@@ -81,6 +82,16 @@ class ReachyRobot:
 
         # push_audio_sample is non-blocking, so wait for playback to finish.
         time.sleep(len(samples) / out_rate + 0.3)
+
+
+def _downscale(frame: np.ndarray, max_dim: int) -> np.ndarray:
+    height, width = frame.shape[:2]
+    longest = max(height, width)
+    if longest <= max_dim:
+        return frame
+    scale = max_dim / longest
+    new_size = (int(width * scale), int(height * scale))
+    return cv2.resize(frame, new_size, interpolation=cv2.INTER_AREA)
 
 
 def _prepare_samples(samples: np.ndarray, samplerate: int, out_rate: int) -> np.ndarray:
