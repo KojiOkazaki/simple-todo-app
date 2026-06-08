@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import threading
 import time
 import urllib.request
 
@@ -20,6 +21,11 @@ import cv2
 import numpy as np
 
 from config import Config
+
+
+def _heartbeat(stop: threading.Event) -> None:
+    while not stop.wait(2.0):
+        print(".", end="", flush=True)
 
 
 def make_test_image() -> str:
@@ -39,6 +45,7 @@ def stream_chat(chat_url, model, image_b64, prompt):
         "messages": [{"role": "user", "content": prompt, "images": [image_b64]}],
         "stream": True,
         "keep_alive": "30m",
+        "think": False,  # answer directly (no long reasoning trace) for speed
     }
     request = urllib.request.Request(
         chat_url,
@@ -46,7 +53,7 @@ def stream_chat(chat_url, model, image_b64, prompt):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request) as response:
+    with urllib.request.urlopen(request, timeout=300) as response:
         for raw in response:
             raw = raw.strip()
             if not raw:
@@ -76,16 +83,22 @@ def main() -> int:
     start = time.time()
     first_token_at = None
     parts = []
-    for obj in stream_chat(chat_url, args.model, image_b64, prompt):
-        piece = (obj.get("message", {}) or {}).get("content") or ""
-        if not piece:
-            continue
-        if first_token_at is None:
-            first_token_at = time.time()
-            print(f"\n[最初のトークンまで {first_token_at - start:.1f}s]")
-            print("回答> ", end="", flush=True)
-        print(piece, end="", flush=True)
-        parts.append(piece)
+    stop_beat = threading.Event()
+    threading.Thread(target=_heartbeat, args=(stop_beat,), daemon=True).start()
+    try:
+        for obj in stream_chat(chat_url, args.model, image_b64, prompt):
+            piece = (obj.get("message", {}) or {}).get("content") or ""
+            if not piece:
+                continue
+            if first_token_at is None:
+                first_token_at = time.time()
+                stop_beat.set()
+                print(f"\n[最初のトークンまで {first_token_at - start:.1f}s]")
+                print("回答> ", end="", flush=True)
+            print(piece, end="", flush=True)
+            parts.append(piece)
+    finally:
+        stop_beat.set()
 
     elapsed = time.time() - start
     answer = "".join(parts).strip()

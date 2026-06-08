@@ -52,11 +52,11 @@ class GemmaVisionChat:
     """Stateful multimodal chat with Gemma 4 on a local Ollama server (HTTP)."""
 
     def __init__(
-        self, host: str, model: str, language: str = "ja", think: Optional[bool] = None
+        self, host: str, model: str, language: str = "ja", think: Optional[bool] = False
     ) -> None:
         self._chat_url = host.rstrip("/") + "/api/chat"
         self._model = model
-        # think=None -> don't send the param (mirror `ollama run`, which works).
+        # think=False -> answer directly (fast). None -> let the server decide.
         self._think = think
         self._is_japanese = language.lower().startswith("ja")
         system = SYSTEM_PROMPT_JA if self._is_japanese else SYSTEM_PROMPT_EN
@@ -135,7 +135,7 @@ class GemmaVisionChat:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request) as response:
+        with urllib.request.urlopen(request, timeout=300) as response:
             for raw_line in response:  # NDJSON: one JSON object per line
                 raw_line = raw_line.strip()
                 if not raw_line:

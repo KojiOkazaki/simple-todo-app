@@ -62,7 +62,7 @@ class ReachyRobot:
             time.sleep(0.1)
         if frame is None:
             raise RuntimeError("Failed to grab a frame from the Reachy Mini camera.")
-        frame = _downscale(frame, max_dim=1024)  # smaller image -> faster Gemma
+        frame = _downscale(frame, max_dim=768)  # smaller image -> faster Gemma
         ok, buffer = cv2.imencode(
             ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), self._jpeg_quality]
         )
