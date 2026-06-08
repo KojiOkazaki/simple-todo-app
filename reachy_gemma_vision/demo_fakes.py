@@ -10,9 +10,7 @@ call itself is faked.
 
 from __future__ import annotations
 
-import sys
 import time
-import types
 
 # A few canned scenes the fake camera cycles through. Each "frame" is just the
 # scene id encoded as bytes; the fake Gemma reads it back to craft a reply.
@@ -23,39 +21,22 @@ _SCENES = [
 ]
 
 
-def _install_fake_ollama() -> None:
-    """Register a minimal fake ``ollama`` module before gemma_client imports it."""
-    if "ollama" in sys.modules:
-        return
+def _fake_stream(messages):
+    """Mimic GemmaVisionChat._chat_stream: yield NDJSON-like message chunks."""
+    scene_desc = "目の前の様子"
+    user_text = ""
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        user_text = message.get("content", "")
+        images = message.get("images") or []
+        if images:
+            scene_desc = _decode_scene(images[0])
 
-    module = types.ModuleType("ollama")
-
-    class _FakeClient:
-        def __init__(self, host=None):
-            self.host = host
-
-        def chat(self, model, messages, stream=False, think=None, **kwargs):
-            # Pull the freshest scene from the attached image, and the question.
-            scene_desc = "目の前の様子"
-            user_text = ""
-            for message in messages:
-                if message.get("role") != "user":
-                    continue
-                user_text = message.get("content", "")
-                images = message.get("images") or []
-                if images:
-                    scene_desc = _decode_scene(images[0])
-
-            reply = _fake_gemma_reply(scene_desc, user_text)
-            if stream:
-                return (
-                    {"message": {"role": "assistant", "content": piece}}
-                    for piece in _chunks(reply)
-                )
-            return {"message": {"role": "assistant", "content": reply}}
-
-    module.Client = _FakeClient
-    sys.modules["ollama"] = module
+    reply = _fake_gemma_reply(scene_desc, user_text)
+    for piece in _chunks(reply):
+        yield {"message": {"role": "assistant", "content": piece}}
+    yield {"message": {"content": ""}, "done": True}
 
 
 def _chunks(text: str, size: int = 8):
@@ -128,8 +109,9 @@ class FakeTTS:
 
 
 def build_demo_components(args):
-    _install_fake_ollama()
-    from gemma_client import GemmaVisionChat  # real class, fake ollama underneath
+    from gemma_client import GemmaVisionChat  # real class; only the HTTP call is faked
 
     chat = GemmaVisionChat(args.ollama_host, args.model, args.language)
+    # Replace the network call with a local fake stream over the same interface.
+    chat._chat_stream = lambda: _fake_stream(chat._messages)  # type: ignore[attr-defined]
     return chat, FakeTTS(), FakeRobot()

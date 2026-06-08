@@ -1,27 +1,24 @@
 """Conversational vision client backed by a local Gemma 4 model via Ollama.
 
-Gemma 4 is natively multimodal, so we hand it the camera frame (JPEG bytes)
-together with the user's question and let it answer in natural language.
-The conversation history is kept so the user can ask follow-up questions
-("and what is to the left of it?") and Gemma keeps the context.
+Talks to Ollama's HTTP API (``/api/chat``) directly with the standard library
+— the same endpoint the working ``ollama run`` CLI uses — instead of the
+``ollama`` Python package, which stalled on image requests on some setups.
+
+Gemma 4 is natively multimodal, so we hand it the camera frame (as a base64
+JPEG) together with the user's question and let it answer in natural language.
+The conversation history is kept so follow-up questions keep their context.
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import threading
-from typing import Any, Dict, List, Optional
-
-import ollama
+import urllib.request
+from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
-
-
-def _heartbeat(stop: threading.Event) -> None:
-    """Print a dot every couple of seconds until ``stop`` is set."""
-    while not stop.wait(2.0):
-        print(".", end="", flush=True)
 
 SYSTEM_PROMPT_JA = (
     "あなたはデスクトップロボット『Reachy Mini』の目と頭脳です。"
@@ -45,16 +42,21 @@ DEFAULT_QUESTION_JA = "今、カメラに何が見えますか？"
 DEFAULT_QUESTION_EN = "What do you see in the camera right now?"
 
 
+def _heartbeat(stop: threading.Event) -> None:
+    """Print a dot every couple of seconds until ``stop`` is set."""
+    while not stop.wait(2.0):
+        print(".", end="", flush=True)
+
+
 class GemmaVisionChat:
-    """Stateful multimodal chat with Gemma 4 running on a local Ollama server."""
+    """Stateful multimodal chat with Gemma 4 on a local Ollama server (HTTP)."""
 
     def __init__(
         self, host: str, model: str, language: str = "ja", think: Optional[bool] = None
     ) -> None:
-        self._client = ollama.Client(host=host)
+        self._chat_url = host.rstrip("/") + "/api/chat"
         self._model = model
         # think=None -> don't send the param (mirror `ollama run`, which works).
-        # Forcing think=False seemed to stall image requests on some Ollama builds.
         self._think = think
         self._is_japanese = language.lower().startswith("ja")
         system = SYSTEM_PROMPT_JA if self._is_japanese else SYSTEM_PROMPT_EN
@@ -68,52 +70,44 @@ class GemmaVisionChat:
     def describe(
         self, image_jpeg: bytes, user_text: Optional[str] = None, stream: bool = True
     ) -> str:
-        """Send the current frame (+ optional question) to Gemma and return its reply.
+        """Send the current frame (+ optional question) to Gemma; return its reply.
 
-        Streams the answer to stdout as it is generated (so a slow first call
-        doesn't look frozen) and disables Gemma's "thinking" trace for speed.
+        Streams the answer to stdout as it is generated, with a heartbeat during
+        the silent model-load/image-prefill phase so it never looks frozen.
         """
         prompt = (user_text or "").strip() or self.default_question
 
-        # Keep only the newest image in the history to bound the context size:
-        # older turns stay as text, which is enough to maintain the conversation.
+        # Keep only the newest image in history to bound the context size.
         self._strip_old_images()
-        # Pass the image as a base64 string (the format Ollama's HTTP API expects)
-        # rather than raw bytes, which some ollama-python versions mishandle.
         image_b64 = base64.b64encode(image_jpeg).decode("ascii")
         self._messages.append(
             {"role": "user", "content": prompt, "images": [image_b64]}
         )
 
         logger.debug("Querying %s with prompt: %s", self._model, prompt)
+        parts: List[str] = []
+        answer_started = False
+        stop_beat = threading.Event()
         if stream:
-            parts = []
-            answer_started = False
-            # The first vision call loads the model and runs image prefill, which
-            # is silent. A heartbeat prints dots so it never looks frozen.
-            stop_beat = threading.Event()
-            beat = threading.Thread(target=_heartbeat, args=(stop_beat,), daemon=True)
-            beat.start()
-            try:
-                for chunk in self._chat(stream=True):
-                    piece = (chunk.get("message", {}) or {}).get("content") or ""
-                    if not piece:
-                        continue  # skip empty/thinking-only chunks
-                    if not answer_started:
-                        stop_beat.set()
-                        print("\nReachy> ", end="", flush=True)
-                        answer_started = True
+            threading.Thread(target=_heartbeat, args=(stop_beat,), daemon=True).start()
+        try:
+            for obj in self._chat_stream():
+                piece = (obj.get("message", {}) or {}).get("content") or ""
+                if not piece:
+                    continue
+                if stream and not answer_started:
+                    stop_beat.set()
+                    print("\nReachy> ", end="", flush=True)
+                    answer_started = True
+                if stream:
                     print(piece, end="", flush=True)
-                    parts.append(piece)
-            finally:
-                stop_beat.set()
-            if answer_started:
-                print(flush=True)
-            answer = "".join(parts).strip()
-        else:
-            response = self._chat(stream=False)
-            answer = (response.get("message", {}) or {}).get("content", "").strip()
+                parts.append(piece)
+        finally:
+            stop_beat.set()
+        if stream and answer_started:
+            print(flush=True)
 
+        answer = "".join(parts).strip()
         if not answer:
             answer = (
                 "うまく説明できませんでした。"
@@ -124,20 +118,34 @@ class GemmaVisionChat:
         self._messages.append({"role": "assistant", "content": answer})
         return answer
 
-    def _chat(self, stream: bool):
-        """Call Ollama. ``keep_alive`` keeps the model resident for 30 min so
-        re-running the app soon after doesn't pay the multi-GB load cost again.
-        """
-        kwargs = dict(
-            model=self._model, messages=self._messages, stream=stream, keep_alive="30m"
-        )
+    def _chat_stream(self) -> Iterator[Dict[str, Any]]:
+        """Stream Ollama's /api/chat response as decoded JSON objects."""
+        payload: Dict[str, Any] = {
+            "model": self._model,
+            "messages": self._messages,
+            "stream": True,
+            "keep_alive": "30m",  # keep the model resident between calls
+        }
         if self._think is not None:
-            kwargs["think"] = self._think
-        try:
-            return self._client.chat(**kwargs)
-        except TypeError:
-            kwargs.pop("think", None)  # older ollama-python without `think`
-            return self._client.chat(**kwargs)
+            payload["think"] = self._think
+
+        request = urllib.request.Request(
+            self._chat_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request) as response:
+            for raw_line in response:  # NDJSON: one JSON object per line
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                obj = json.loads(raw_line)
+                if obj.get("error"):
+                    raise RuntimeError(f"Ollama error: {obj['error']}")
+                yield obj
+                if obj.get("done"):
+                    break
 
     def reset(self) -> None:
         """Forget the conversation, keeping only the system prompt."""

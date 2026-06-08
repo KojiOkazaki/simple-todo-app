@@ -6,8 +6,9 @@
 reachy-mini
 
 # --- Local Gemma 4 via Ollama ------------------------------------------------
-# Python client that talks to a locally running Ollama server (localhost:11434).
-ollama>=0.4.0
+# We talk to Ollama's HTTP API (/api/chat on localhost:11434) using only the
+# standard library, so no extra client package is required. Just run Ollama
+# and `ollama pull gemma4:e2b` (or e4b).
 
 # --- Image / audio plumbing --------------------------------------------------
 numpy

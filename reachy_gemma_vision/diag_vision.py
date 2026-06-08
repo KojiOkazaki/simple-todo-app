@@ -1,23 +1,23 @@
 """Standalone check: does the local Gemma 4 (Ollama) actually do vision?
 
 No robot needed. Generates a simple test image (a red circle + the word
-"HELLO" on white), sends it to the configured Ollama model, and prints the
-reply with timing. Use this to confirm multimodality and measure how long
-the first (model-loading) image call takes.
+"HELLO" on white), sends it to Ollama's HTTP /api/chat (the same endpoint the
+`ollama run` CLI uses), and prints the reply with timing.
 
     python diag_vision.py
-    python diag_vision.py --model gemma4:e2b      # try a smaller/faster tag
+    python diag_vision.py --model gemma4:e2b
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import json
 import time
+import urllib.request
 
 import cv2
 import numpy as np
-import ollama
 
 from config import Config
 
@@ -33,9 +33,30 @@ def make_test_image() -> str:
     return base64.b64encode(buffer.tobytes()).decode("ascii")
 
 
-def chat_stream(client, model, messages):
-    # Mirror `ollama run` (which works): don't force think off; let it stream.
-    return client.chat(model=model, messages=messages, stream=True, keep_alive="30m")
+def stream_chat(chat_url, model, image_b64, prompt):
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt, "images": [image_b64]}],
+        "stream": True,
+        "keep_alive": "30m",
+    }
+    request = urllib.request.Request(
+        chat_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request) as response:
+        for raw in response:
+            raw = raw.strip()
+            if not raw:
+                continue
+            obj = json.loads(raw)
+            if obj.get("error"):
+                raise RuntimeError(f"Ollama error: {obj['error']}")
+            yield obj
+            if obj.get("done"):
+                break
 
 
 def main() -> int:
@@ -46,24 +67,17 @@ def main() -> int:
     args = parser.parse_args()
 
     image_b64 = make_test_image()
-    print(f"model={args.model}  host={args.ollama_host}")
+    chat_url = args.ollama_host.rstrip("/") + "/api/chat"
+    print(f"model={args.model}  url={chat_url}")
     print("test image: 白背景に赤い丸と『HELLO』の文字 (diag_test.jpg に保存)")
     print("画像を送信中... 初回はモデル読み込みで時間がかかります。")
 
-    client = ollama.Client(host=args.ollama_host)
-    messages = [
-        {
-            "role": "user",
-            "content": "この画像には何が写っていますか？色や文字も含めて日本語で説明してください。",
-            "images": [image_b64],
-        }
-    ]
-
+    prompt = "この画像には何が写っていますか？色や文字も含めて日本語で説明してください。"
     start = time.time()
     first_token_at = None
     parts = []
-    for chunk in chat_stream(client, args.model, messages):
-        piece = (chunk.get("message", {}) or {}).get("content") or ""
+    for obj in stream_chat(chat_url, args.model, image_b64, prompt):
+        piece = (obj.get("message", {}) or {}).get("content") or ""
         if not piece:
             continue
         if first_token_at is None:
@@ -80,7 +94,7 @@ def main() -> int:
         print("⚠️ 応答が空でした。モデルが画像非対応か、ロードに失敗した可能性があります。")
         return 1
     if any(k in answer for k in ("赤", "丸", "円", "HELLO", "ハロー", "文字")):
-        print("✅ 画像の内容（赤い丸/HELLO等）に言及しています → マルチモーダル動作OK。")
+        print("✅ 画像の内容（赤い丸/HELLO等）に言及 → マルチモーダル動作OK。")
     else:
         print("△ 画像の内容に触れていないようです。応答内容を確認してください。")
     return 0
