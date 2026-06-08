@@ -60,7 +60,7 @@ class ReachyRobot:
 
     def record_utterance(
         self,
-        threshold: float = 0.015,
+        threshold: float = 0.01,
         max_seconds: float = 15.0,
         silence_seconds: float = 1.5,
         start_timeout: float = 10.0,
@@ -82,6 +82,7 @@ class ReachyRobot:
         speaking = False
         silent_run = 0.0
         waited = 0.0
+        peak = 0.0
         start = time.time()
         while True:
             sample = media.get_audio_sample()
@@ -91,6 +92,7 @@ class ReachyRobot:
             mono = mono.astype(np.float32)
             chunk_dur = len(mono) / in_rate if in_rate else 0.0
             rms = float(np.sqrt(np.mean(mono ** 2))) if mono.size else 0.0
+            peak = max(peak, rms)
 
             if rms >= threshold:
                 speaking = True
@@ -110,6 +112,10 @@ class ReachyRobot:
                 break
 
         if not collected:
+            logger.info(
+                "No speech detected (mic peak RMS=%.4f, threshold=%.4f). "
+                "Lower VAD_THRESHOLD if your voice is below it.", peak, threshold
+            )
             return None, in_rate
         return np.concatenate(collected).astype(np.float32), in_rate
 
