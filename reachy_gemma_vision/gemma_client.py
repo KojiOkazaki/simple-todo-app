@@ -116,15 +116,21 @@ class GemmaVisionChat:
         return answer
 
     def _chat(self, stream: bool):
-        """Call Ollama with thinking disabled (falling back if unsupported)."""
+        """Call Ollama with thinking disabled (falling back if unsupported).
+
+        ``keep_alive`` keeps the model resident for 30 min so re-running the
+        app soon after doesn't pay the multi-GB load cost again.
+        """
         try:
             return self._client.chat(
-                model=self._model, messages=self._messages, stream=stream, think=False
+                model=self._model, messages=self._messages, stream=stream,
+                think=False, keep_alive="30m",
             )
         except TypeError:
             # Older ollama-python without the `think` parameter.
             return self._client.chat(
-                model=self._model, messages=self._messages, stream=stream
+                model=self._model, messages=self._messages, stream=stream,
+                keep_alive="30m",
             )
 
     def reset(self) -> None:
