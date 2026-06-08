@@ -52,11 +52,13 @@ class GemmaVisionChat:
     """Stateful multimodal chat with Gemma 4 on a local Ollama server (HTTP)."""
 
     def __init__(
-        self, host: str, model: str, language: str = "ja", think: Optional[bool] = False
+        self, host: str, model: str, language: str = "ja", think: Optional[bool] = None
     ) -> None:
         self._chat_url = host.rstrip("/") + "/api/chat"
         self._model = model
-        # think=False -> answer directly (fast). None -> let the server decide.
+        # think=None -> don't send the param (mirror `ollama run`, which works).
+        # NOTE: sending think=False with an image hangs Ollama 0.30.x for Gemma 4,
+        # so we leave thinking at the server default unless explicitly overridden.
         self._think = think
         self._is_japanese = language.lower().startswith("ja")
         system = SYSTEM_PROMPT_JA if self._is_japanese else SYSTEM_PROMPT_EN

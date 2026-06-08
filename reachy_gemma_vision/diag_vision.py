@@ -45,7 +45,8 @@ def stream_chat(chat_url, model, image_b64, prompt):
         "messages": [{"role": "user", "content": prompt, "images": [image_b64]}],
         "stream": True,
         "keep_alive": "30m",
-        "think": False,  # answer directly (no long reasoning trace) for speed
+        # NOTE: do NOT send think=False here — that hangs Ollama 0.30.x for
+        # Gemma 4 + image. Leave thinking at the server default (mirrors the CLI).
     }
     request = urllib.request.Request(
         chat_url,
