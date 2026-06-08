@@ -84,6 +84,21 @@ python app.py --audio-output file --once
 python app.py --demo
 ```
 
+### 声で雑談する（音声入力 + 画像認識）
+
+`--voice` を付けると、Reachy のマイクから**声で話しかけて、声で返事**が返ります。
+雑談もでき、見えているものについて聞けば画像認識して答えます。
+
+```bash
+python app.py --voice --tts-backend macos --model gemma3:4b
+```
+
+- 話し終えて少し黙ると自動で認識（VAD）。`「終了」「バイバイ」`で終了。
+- 音声認識はローカルの faster-whisper（初回はモデルを自動DL）。
+- 聞き取りが悪い/敏感すぎる場合は `VAD_THRESHOLD`（既定 0.015）を調整。
+  例: 周囲がうるさい→大きめ `VAD_THRESHOLD=0.03`、声が小さい→小さめ。
+- Whisper のモデルは `STT_MODEL`（tiny/base/small/medium、既定 small）で変更可。
+
 対話モードのコマンド:
 
 - （空 Enter）… 現在の映像を説明

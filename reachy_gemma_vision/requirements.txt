@@ -16,6 +16,10 @@ opencv-python      # cv2 — JPEG-encode the camera frame for Gemma
 scipy              # resample TTS audio to the robot's output sample rate
 soundfile          # read synthesized WAV audio
 
+# --- Speech-to-text (voice input; --voice mode) ------------------------------
+# Local, offline Whisper. Downloads the model from Hugging Face on first use.
+faster-whisper
+
 # --- Text-to-speech (pick one; piper recommended for quality + Japanese) -----
 # Piper is a fast, fully-local neural TTS. Install the CLI and a voice model
 # (see README). pyttsx3 is a zero-download offline fallback (lower quality).

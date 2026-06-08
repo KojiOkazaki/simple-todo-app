@@ -25,9 +25,15 @@ _CHUNK_SIZE = 1024  # samples per push, matching the SDK's sound_play example
 class ReachyRobot:
     """Context manager that owns the ReachyMini connection and media devices."""
 
-    def __init__(self, media_backend: str = "default", jpeg_quality: int = 90) -> None:
+    def __init__(
+        self,
+        media_backend: str = "default",
+        jpeg_quality: int = 90,
+        enable_mic: bool = False,
+    ) -> None:
         self._media_backend = media_backend
         self._jpeg_quality = int(jpeg_quality)
+        self._enable_mic = enable_mic
         self._cm = None
         self._mini = None
 
@@ -37,16 +43,75 @@ class ReachyRobot:
         self._mini = self._cm.__enter__()
         # Acquire the speaker so we can push audio later.
         self._mini.media.start_playing()
+        if self._enable_mic:  # acquire the microphone for voice input
+            self._mini.media.start_recording()
         return self
 
     def __exit__(self, exc_type, exc, tb):
         try:
             if self._mini is not None:
+                if self._enable_mic:
+                    self._mini.media.stop_recording()
                 self._mini.media.stop_playing()
         finally:
             if self._cm is not None:
                 self._cm.__exit__(exc_type, exc, tb)
         return False
+
+    def record_utterance(
+        self,
+        threshold: float = 0.015,
+        max_seconds: float = 15.0,
+        silence_seconds: float = 1.5,
+        start_timeout: float = 10.0,
+    ) -> tuple:
+        """Record one spoken utterance from the mic using energy-based VAD.
+
+        Returns ``(audio_mono_float32, samplerate)`` or ``(None, rate)`` if no
+        speech was detected. Starts recording on speech, stops after a short
+        silence. ``threshold`` may need tuning for your room (env VAD_THRESHOLD).
+        """
+        media = self._mini.media
+        in_rate = media.get_input_audio_samplerate()
+
+        # Drain any stale buffered audio first.
+        for _ in range(5):
+            media.get_audio_sample()
+
+        collected = []
+        speaking = False
+        silent_run = 0.0
+        waited = 0.0
+        start = time.time()
+        while True:
+            sample = media.get_audio_sample()
+            if sample is None:
+                continue
+            mono = sample.mean(axis=1) if sample.ndim > 1 else np.asarray(sample)
+            mono = mono.astype(np.float32)
+            chunk_dur = len(mono) / in_rate if in_rate else 0.0
+            rms = float(np.sqrt(np.mean(mono ** 2))) if mono.size else 0.0
+
+            if rms >= threshold:
+                speaking = True
+                silent_run = 0.0
+                collected.append(mono)
+            elif speaking:
+                collected.append(mono)  # keep a little trailing audio
+                silent_run += chunk_dur
+                if silent_run >= silence_seconds:
+                    break
+            else:
+                waited += chunk_dur
+                if waited >= start_timeout:
+                    break  # nobody started talking
+
+            if time.time() - start >= max_seconds:
+                break
+
+        if not collected:
+            return None, in_rate
+        return np.concatenate(collected).astype(np.float32), in_rate
 
     def capture_jpeg(self) -> bytes:
         """Grab the current camera frame and JPEG-encode it for Gemma.

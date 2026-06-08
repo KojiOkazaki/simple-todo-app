@@ -59,3 +59,11 @@ class Config:
 
     # JPEG quality used when encoding the frame sent to Gemma (1-100).
     jpeg_quality: int = int(os.environ.get("JPEG_QUALITY", "90"))
+
+    # --- Voice input (speech-to-text) ---------------------------------------
+    # Local Whisper model size: tiny / base / small / medium (larger = better,
+    # slower). "small" is a good balance for Japanese.
+    stt_model: str = os.environ.get("STT_MODEL", "small")
+    stt_compute_type: str = os.environ.get("STT_COMPUTE_TYPE", "int8")
+    # Mic energy threshold for voice activity detection (tune for your room).
+    vad_threshold: float = float(os.environ.get("VAD_THRESHOLD", "0.015"))

@@ -97,6 +97,24 @@ class FakeRobot:
         print(f"[demo] 🔊 Reachy のスピーカーで発話中... ({duration:.1f}s 相当)")
         time.sleep(min(duration, 0.4))  # brief pause so the demo feels real
 
+    def record_utterance(self, **kwargs):
+        # No real mic in the demo; pretend a short clip was recorded.
+        return [0.0] * 16000, 16000
+
+
+class FakeSTT:
+    """Stand-in speech-to-text: cycles through canned phrases."""
+
+    _PHRASES = ["こんにちは", "今、何が見える？", "そのカップは何色？", "ありがとう"]
+
+    def __init__(self):
+        self._i = 0
+
+    def transcribe(self, audio, samplerate) -> str:
+        phrase = self._PHRASES[self._i % len(self._PHRASES)]
+        self._i += 1
+        return phrase
+
 
 class FakeTTS:
     """Stands in for a TTS engine: returns a dummy 16kHz buffer sized by text."""
@@ -114,4 +132,5 @@ def build_demo_components(args):
     chat = GemmaVisionChat(args.ollama_host, args.model, args.language)
     # Replace the network call with a local fake stream over the same interface.
     chat._chat_stream = lambda: _fake_stream(chat._messages)  # type: ignore[attr-defined]
-    return chat, FakeTTS(), FakeRobot()
+    stt = FakeSTT() if getattr(args, "voice", False) else None
+    return chat, FakeTTS(), FakeRobot(), stt

@@ -63,6 +63,10 @@ def parse_args(cfg: Config) -> argparse.Namespace:
         "--question", default=None, help="A single question to ask about the scene."
     )
     parser.add_argument(
+        "--voice", action="store_true",
+        help="Talk to Reachy with your voice (mic -> Whisper -> Gemma -> speech).",
+    )
+    parser.add_argument(
         "--demo", action="store_true",
         help="Offline demo with mocked camera/Gemma/speaker (no hardware needed).",
     )
@@ -71,7 +75,7 @@ def parse_args(cfg: Config) -> argparse.Namespace:
 
 
 def build_components(args):
-    """Create (chat, tts, robot_cm). Real implementations, or demo fakes."""
+    """Create (chat, tts, robot_cm, stt). Real implementations, or demo fakes."""
     if args.demo:
         from demo_fakes import build_demo_components
 
@@ -93,8 +97,14 @@ def build_components(args):
         voicevox_host=args.voicevox_host,
         voicevox_speaker=args.voicevox_speaker,
     )
-    robot_cm = ReachyRobot(args.media_backend, args.jpeg_quality)
-    return chat, tts, robot_cm
+    robot_cm = ReachyRobot(args.media_backend, args.jpeg_quality, enable_mic=args.voice)
+
+    stt = None
+    if args.voice:
+        from stt import WhisperSTT
+
+        stt = WhisperSTT(args.stt_model, args.language, args.stt_compute_type)
+    return chat, tts, robot_cm, stt
 
 
 def output_audio(robot, args, samples, samplerate, index: int) -> None:
@@ -131,17 +141,13 @@ def describe_and_speak(robot, chat, tts, args, user_text, is_japanese) -> None:
 describe_and_speak.index = 1  # type: ignore[attr-defined]
 
 
+QUIT_WORDS = {"quit", "exit", "q", "終了", "おわり", "終わり", "バイバイ", "ばいばい", "さようなら"}
+RESET_WORDS = {"reset", "リセット"}
+
+
 def run(args) -> int:
     is_japanese = args.language.lower().startswith("ja")
-    chat, tts, robot_cm = build_components(args)
-
-    prompt_label = (
-        "\n質問 (Enter=もう一度見る / reset=記憶消去 / quit=終了) > "
-        if is_japanese
-        else "\nAsk (Enter=look again / reset / quit) > "
-    )
-    quit_words = {"quit", "exit", "q", "終了"}
-    reset_words = {"reset", "リセット"}
+    chat, tts, robot_cm, stt = build_components(args)
 
     with robot_cm as robot:
         print(
@@ -155,37 +161,74 @@ def run(args) -> int:
             describe_and_speak(robot, chat, tts, args, args.question, is_japanese)
             return 0
 
-        # Discard anything typed into the terminal while the robot was connecting
-        # (so a stray "こんにちは" doesn't get eaten as the first question).
-        _flush_stdin()
-
-        # Greet by describing the scene right away, so it's conversational
-        # without the user needing to know what to type first.
+        # Greet by describing the scene right away.
         describe_and_speak(robot, chat, tts, args, None, is_japanese)
 
-        # Interactive conversation loop.
-        while True:
-            try:
-                user_text = input(prompt_label).strip()
-            except (EOFError, KeyboardInterrupt):
-                print()
-                break
-
-            lowered = user_text.lower()
-            if lowered in quit_words:
-                break
-            if lowered in reset_words:
-                chat.reset()
-                print("  (会話の記憶をリセットしました)" if is_japanese else "  (conversation reset)")
-                continue
-
-            try:
-                describe_and_speak(robot, chat, tts, args, user_text or None, is_japanese)
-            except RuntimeError as exc:
-                logger.error("%s", exc)
+        if args.voice:
+            _voice_loop(robot, chat, tts, stt, args, is_japanese)
+        else:
+            _text_loop(robot, chat, tts, args, is_japanese)
 
     print("さようなら！" if is_japanese else "Bye!")
     return 0
+
+
+def _text_loop(robot, chat, tts, args, is_japanese) -> None:
+    prompt_label = (
+        "\n質問 (Enter=もう一度見る / reset=記憶消去 / quit=終了) > "
+        if is_japanese
+        else "\nAsk (Enter=look again / reset / quit) > "
+    )
+    _flush_stdin()  # drop anything typed while the robot was connecting
+    while True:
+        try:
+            user_text = input(prompt_label).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        lowered = user_text.lower()
+        if lowered in QUIT_WORDS:
+            break
+        if lowered in RESET_WORDS:
+            chat.reset()
+            print("  (会話の記憶をリセットしました)" if is_japanese else "  (conversation reset)")
+            continue
+        try:
+            describe_and_speak(robot, chat, tts, args, user_text or None, is_japanese)
+        except RuntimeError as exc:
+            logger.error("%s", exc)
+
+
+def _voice_loop(robot, chat, tts, stt, args, is_japanese) -> None:
+    print(
+        "\n🎤 声で話しかけてください（『終了』『バイバイ』で終わり、Ctrl+Cでも可）"
+        if is_japanese
+        else "\n🎤 Just speak to Reachy (say 'quit' / 'bye' to stop, or Ctrl+C)",
+        flush=True,
+    )
+    while True:
+        try:
+            print(
+                "\n🎤 どうぞ（話し終えると自動で認識します）..."
+                if is_japanese else "\n🎤 Listening (auto-stops when you pause)...",
+                flush=True,
+            )
+            audio, samplerate = robot.record_utterance(threshold=args.vad_threshold)
+            if audio is None or len(audio) == 0:
+                continue
+            user_text = stt.transcribe(audio, samplerate).strip()
+            if not user_text:
+                print("  （うまく聞き取れませんでした）" if is_japanese else "  (didn't catch that)")
+                continue
+            print(f"\nあなた> {user_text}" if is_japanese else f"\nYou> {user_text}")
+            if user_text.lower().strip("。.! 　") in QUIT_WORDS:
+                break
+            describe_and_speak(robot, chat, tts, args, user_text, is_japanese)
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        except RuntimeError as exc:
+            logger.error("%s", exc)
 
 
 def _flush_stdin() -> None:
@@ -200,8 +243,11 @@ def _flush_stdin() -> None:
 def main() -> int:
     cfg = Config()
     args = parse_args(cfg)
-    # Carry jpeg_quality through (not a CLI flag, but used by the robot wrapper).
+    # Carry config-only settings through (not CLI flags).
     args.jpeg_quality = cfg.jpeg_quality
+    args.stt_model = cfg.stt_model
+    args.stt_compute_type = cfg.stt_compute_type
+    args.vad_threshold = cfg.vad_threshold
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
