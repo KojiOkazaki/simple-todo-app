@@ -49,8 +49,17 @@ class ReachyRobot:
         return False
 
     def capture_jpeg(self) -> bytes:
-        """Grab the current camera frame and JPEG-encode it for Gemma."""
-        frame = self._mini.media.get_frame()
+        """Grab the current camera frame and JPEG-encode it for Gemma.
+
+        The GStreamer camera may need a moment after start-up before the first
+        frame is available, so retry briefly instead of failing immediately.
+        """
+        frame = None
+        for _ in range(50):  # ~5s of warm-up at 0.1s intervals
+            frame = self._mini.media.get_frame()
+            if frame is not None:
+                break
+            time.sleep(0.1)
         if frame is None:
             raise RuntimeError("Failed to grab a frame from the Reachy Mini camera.")
         ok, buffer = cv2.imencode(

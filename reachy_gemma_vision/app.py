@@ -102,30 +102,60 @@ def output_audio(robot, args, samples, samplerate, index: int) -> None:
         robot.speak(samples, samplerate)
 
 
+def describe_and_speak(robot, chat, tts, args, user_text, is_japanese) -> None:
+    """Capture a frame, ask Gemma about it, print and speak the answer."""
+    print("📷 撮影中..." if is_japanese else "📷 Capturing...", flush=True)
+    jpeg = robot.capture_jpeg()
+
+    print(
+        "🧠 Gemma 4 が考えています（初回はモデル読み込みで時間がかかります）..."
+        if is_japanese
+        else "🧠 Gemma 4 is thinking (first run loads the model, please wait)...",
+        flush=True,
+    )
+    answer = chat.describe(jpeg, user_text or None)
+    print(f"\nReachy> {answer}\n", flush=True)
+
+    print("🔊 発話中..." if is_japanese else "🔊 Speaking...", flush=True)
+    samples, samplerate = tts.synthesize(answer)
+    output_audio(robot, args, samples, samplerate, describe_and_speak.index)
+    describe_and_speak.index += 1
+
+
+describe_and_speak.index = 1  # type: ignore[attr-defined]
+
+
 def run(args) -> int:
     is_japanese = args.language.lower().startswith("ja")
     chat, tts, robot_cm = build_components(args)
 
     prompt_label = (
-        "\n質問 (Enter=「今何が見える?」 / reset=記憶消去 / quit=終了) > "
+        "\n質問 (Enter=もう一度見る / reset=記憶消去 / quit=終了) > "
         if is_japanese
-        else "\nAsk (Enter=describe / reset / quit) > "
+        else "\nAsk (Enter=look again / reset / quit) > "
     )
     quit_words = {"quit", "exit", "q", "終了"}
     reset_words = {"reset", "リセット"}
 
     with robot_cm as robot:
-        print("Reachy Mini + Gemma 4 起動しました。" if is_japanese else "Reachy Mini + Gemma 4 ready.")
+        print(
+            "✅ Reachy Mini + Gemma 4 起動しました。" if is_japanese
+            else "✅ Reachy Mini + Gemma 4 ready.",
+            flush=True,
+        )
 
-        index = 0
         # Single-shot modes: --once or a one-off --question.
         if args.once or args.question is not None:
-            index += 1
-            answer = chat.describe(robot.capture_jpeg(), args.question)
-            print(f"\nReachy> {answer}")
-            samples, samplerate = tts.synthesize(answer)
-            output_audio(robot, args, samples, samplerate, index)
+            describe_and_speak(robot, chat, tts, args, args.question, is_japanese)
             return 0
+
+        # Discard anything typed into the terminal while the robot was connecting
+        # (so a stray "こんにちは" doesn't get eaten as the first question).
+        _flush_stdin()
+
+        # Greet by describing the scene right away, so it's conversational
+        # without the user needing to know what to type first.
+        describe_and_speak(robot, chat, tts, args, None, is_japanese)
 
         # Interactive conversation loop.
         while True:
@@ -144,20 +174,21 @@ def run(args) -> int:
                 continue
 
             try:
-                jpeg = robot.capture_jpeg()
+                describe_and_speak(robot, chat, tts, args, user_text or None, is_japanese)
             except RuntimeError as exc:
                 logger.error("%s", exc)
-                continue
-
-            answer = chat.describe(jpeg, user_text or None)
-            print(f"\nReachy> {answer}")
-
-            index += 1
-            samples, samplerate = tts.synthesize(answer)
-            output_audio(robot, args, samples, samplerate, index)
 
     print("さようなら！" if is_japanese else "Bye!")
     return 0
+
+
+def _flush_stdin() -> None:
+    try:
+        import termios
+
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except Exception:  # noqa: BLE001 - not POSIX / not a TTY; nothing to flush
+        pass
 
 
 def main() -> int:
@@ -169,6 +200,9 @@ def main() -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    if not args.verbose:
+        # Quiet the SDK's chatty INFO logs so the conversation is easy to read.
+        logging.getLogger("reachy_mini").setLevel(logging.WARNING)
     try:
         return run(args)
     except Exception as exc:  # noqa: BLE001 - top-level guard for a CLI tool
