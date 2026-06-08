@@ -19,3 +19,9 @@ npm run dev
 - ToDoの一覧表示
 - ToDoの追加
 - ToDoの削除
+
+## 実験: Reachy Mini × Gemma 4 ビジョン会話
+
+`reachy_gemma_vision/` に、Reachy Mini のカメラ映像をローカルの Gemma 4 で解析し、
+見えているものを音声で説明する実験アプリを追加しています。詳細は
+[`reachy_gemma_vision/README.md`](reachy_gemma_vision/README.md) を参照してください。

@@ -1,0 +1,22 @@
+# --- Reachy Mini SDK ---------------------------------------------------------
+# Provides the `reachy_mini` package (camera + speaker access).
+# Install following the official instructions for your robot/OS, e.g.:
+#   pip install reachy-mini
+# (or from source: pip install "git+https://github.com/pollen-robotics/reachy_mini")
+reachy-mini
+
+# --- Local Gemma 4 via Ollama ------------------------------------------------
+# Python client that talks to a locally running Ollama server (localhost:11434).
+ollama>=0.4.0
+
+# --- Image / audio plumbing --------------------------------------------------
+numpy
+opencv-python      # cv2 — JPEG-encode the camera frame for Gemma
+scipy              # resample TTS audio to the robot's output sample rate
+soundfile          # read synthesized WAV audio
+
+# --- Text-to-speech (pick one; piper recommended for quality + Japanese) -----
+# Piper is a fast, fully-local neural TTS. Install the CLI and a voice model
+# (see README). pyttsx3 is a zero-download offline fallback (lower quality).
+piper-tts          # recommended
+pyttsx3            # fallback
