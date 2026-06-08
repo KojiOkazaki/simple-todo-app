@@ -145,8 +145,8 @@ def run(args) -> int:
 
     with robot_cm as robot:
         print(
-            "✅ Reachy Mini + Gemma 4 起動しました。" if is_japanese
-            else "✅ Reachy Mini + Gemma 4 ready.",
+            f"✅ Reachy Mini 起動しました（モデル: {args.model}）。" if is_japanese
+            else f"✅ Reachy Mini ready (model: {args.model}).",
             flush=True,
         )
 
