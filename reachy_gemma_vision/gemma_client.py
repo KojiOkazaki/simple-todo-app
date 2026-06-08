@@ -72,11 +72,27 @@ class GemmaVisionChat:
         logger.debug("Querying %s with prompt: %s", self._model, prompt)
         if stream:
             parts = []
+            in_thinking = False
+            answer_started = False
             for chunk in self._chat(stream=True):
-                piece = (chunk.get("message", {}) or {}).get("content", "")
+                message = chunk.get("message", {}) or {}
+                thinking = message.get("thinking") or ""
+                piece = message.get("content") or ""
+                if thinking and not piece:
+                    if not in_thinking:
+                        print("（考え中）", end="", flush=True)
+                        in_thinking = True
+                    print(".", end="", flush=True)  # progress dots while reasoning
                 if piece:
+                    if not answer_started:
+                        if in_thinking:
+                            print()  # finish the dots line
+                        print("Reachy> ", end="", flush=True)
+                        answer_started = True
                     print(piece, end="", flush=True)
                     parts.append(piece)
+            if answer_started:
+                print(flush=True)
             answer = "".join(parts).strip()
         else:
             response = self._chat(stream=False)

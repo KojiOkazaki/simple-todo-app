@@ -113,9 +113,8 @@ def describe_and_speak(robot, chat, tts, args, user_text, is_japanese) -> None:
         else "🧠 Gemma 4 is analyzing (first run loads the model, please wait)...",
         flush=True,
     )
-    print("\nReachy> ", end="", flush=True)
-    answer = chat.describe(jpeg, user_text or None)  # streams to stdout
-    print("\n", flush=True)
+    # describe() streams "Reachy> ...答え..." to stdout itself.
+    answer = chat.describe(jpeg, user_text or None)
 
     print("🔊 発話中..." if is_japanese else "🔊 Speaking...", flush=True)
     samples, samplerate = tts.synthesize(answer)
