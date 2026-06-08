@@ -22,6 +22,9 @@ class Config:
     # image directly. Pull the model first with e.g. `ollama pull gemma4:e4b`.
     ollama_host: str = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
     model: str = os.environ.get("GEMMA_MODEL", "gemma4:e4b")
+    # How to reach the model: "http" (/api/chat) or "cli" (shell out to
+    # `ollama run`, which works for images where the HTTP API stalls).
+    transport: str = os.environ.get("GEMMA_TRANSPORT", "http")
 
     # --- Language / persona --------------------------------------------------
     # "ja" -> Japanese system prompt + default question, anything else -> English.

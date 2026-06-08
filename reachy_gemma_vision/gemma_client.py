@@ -14,6 +14,9 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
+import subprocess
+import tempfile
 import threading
 import urllib.request
 from typing import Any, Dict, Iterator, List, Optional
@@ -52,10 +55,18 @@ class GemmaVisionChat:
     """Stateful multimodal chat with Gemma 4 on a local Ollama server (HTTP)."""
 
     def __init__(
-        self, host: str, model: str, language: str = "ja", think: Optional[bool] = None
+        self,
+        host: str,
+        model: str,
+        language: str = "ja",
+        think: Optional[bool] = None,
+        transport: str = "http",
     ) -> None:
         self._chat_url = host.rstrip("/") + "/api/chat"
         self._model = model
+        # "http" -> Ollama /api/chat. "cli" -> shell out to `ollama run`
+        # (the path proven to work for images on setups where HTTP stalls).
+        self._transport = transport
         # think=None -> don't send the param (mirror `ollama run`, which works).
         # NOTE: sending think=False with an image hangs Ollama 0.30.x for Gemma 4,
         # so we leave thinking at the server default unless explicitly overridden.
@@ -78,6 +89,9 @@ class GemmaVisionChat:
         the silent model-load/image-prefill phase so it never looks frozen.
         """
         prompt = (user_text or "").strip() or self.default_question
+
+        if self._transport == "cli":
+            return self._describe_cli(image_jpeg, prompt, stream)
 
         # Keep only the newest image in history to bound the context size.
         self._strip_old_images()
@@ -118,6 +132,45 @@ class GemmaVisionChat:
             )
 
         self._messages.append({"role": "assistant", "content": answer})
+        return answer
+
+    def _describe_cli(self, image_jpeg: bytes, prompt: str, stream: bool) -> str:
+        """Describe via `ollama run` (subprocess) — the path that works for
+        images when the HTTP API stalls. Single-turn (no chat history)."""
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+            tmp.write(image_jpeg)
+            img_path = tmp.name
+
+        # `ollama run` detects the image path embedded in the prompt text.
+        full_prompt = f"{self._system_message['content']}\n\n{prompt}\n{img_path}"
+
+        stop_beat = threading.Event()
+        if stream:
+            threading.Thread(target=_heartbeat, args=(stop_beat,), daemon=True).start()
+        try:
+            proc = subprocess.run(
+                ["ollama", "run", self._model, full_prompt],
+                capture_output=True, text=True, timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("ollama run timed out (300s).") from exc
+        finally:
+            stop_beat.set()
+            try:
+                os.unlink(img_path)
+            except OSError:
+                pass
+
+        if proc.returncode != 0:
+            raise RuntimeError(f"ollama run failed: {proc.stderr.strip()}")
+
+        answer = proc.stdout.strip() or (
+            "うまく説明できませんでした。"
+            if self._is_japanese
+            else "Sorry, I couldn't describe that."
+        )
+        if stream:
+            print(f"\nReachy> {answer}", flush=True)
         return answer
 
     def _chat_stream(self) -> Iterator[Dict[str, Any]]:

@@ -34,6 +34,10 @@ def parse_args(cfg: Config) -> argparse.Namespace:
     )
     parser.add_argument("--model", default=cfg.model, help="Ollama model tag (Gemma 4).")
     parser.add_argument("--ollama-host", default=cfg.ollama_host, help="Ollama base URL.")
+    parser.add_argument(
+        "--transport", default=cfg.transport, choices=["http", "cli"],
+        help='How to reach the model: "http" or "cli" (shell out to `ollama run`).',
+    )
     parser.add_argument("--language", default=cfg.language, help='"ja" or "en".')
     parser.add_argument(
         "--tts-backend", default=cfg.tts_backend,
@@ -79,7 +83,9 @@ def build_components(args):
     from robot import ReachyRobot
     from tts import build_tts
 
-    chat = GemmaVisionChat(args.ollama_host, args.model, args.language)
+    chat = GemmaVisionChat(
+        args.ollama_host, args.model, args.language, transport=args.transport
+    )
     tts = build_tts(
         args.tts_backend,
         piper_model=args.piper_model,
