@@ -133,4 +133,4 @@ def build_demo_components(args):
     # Replace the network call with a local fake stream over the same interface.
     chat._chat_stream = lambda: _fake_stream(chat._messages)  # type: ignore[attr-defined]
     stt = FakeSTT() if getattr(args, "voice", False) else None
-    return chat, FakeTTS(), FakeRobot(), stt
+    return chat, FakeTTS(), FakeRobot(), stt, None

@@ -19,6 +19,8 @@ soundfile          # read synthesized WAV audio
 # --- Speech-to-text (voice input; --voice mode) ------------------------------
 # Local, offline Whisper. Downloads the model from Hugging Face on first use.
 faster-whisper
+# Used by --mic sd to record from the Mac mic (or any input device) directly.
+sounddevice
 
 # --- Text-to-speech (pick one; piper recommended for quality + Japanese) -----
 # Piper is a fast, fully-local neural TTS. Install the CLI and a voice model

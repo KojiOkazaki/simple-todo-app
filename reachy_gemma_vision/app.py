@@ -67,6 +67,15 @@ def parse_args(cfg: Config) -> argparse.Namespace:
         help="Talk to Reachy with your voice (mic -> Whisper -> Gemma -> speech).",
     )
     parser.add_argument(
+        "--mic", default="reachy", choices=["reachy", "sd"],
+        help='Voice input source: "reachy" (SDK mic) or "sd" (sounddevice, '
+        'e.g. the Mac built-in mic).',
+    )
+    parser.add_argument(
+        "--mic-device", default="",
+        help='With --mic sd: input device name substring (empty=system default).',
+    )
+    parser.add_argument(
         "--demo", action="store_true",
         help="Offline demo with mocked camera/Gemma/speaker (no hardware needed).",
     )
@@ -97,14 +106,20 @@ def build_components(args):
         voicevox_host=args.voicevox_host,
         voicevox_speaker=args.voicevox_speaker,
     )
-    robot_cm = ReachyRobot(args.media_backend, args.jpeg_quality, enable_mic=args.voice)
+    use_reachy_mic = args.voice and args.mic == "reachy"
+    robot_cm = ReachyRobot(args.media_backend, args.jpeg_quality, enable_mic=use_reachy_mic)
 
     stt = None
+    recorder = None  # None -> use the robot's mic in the voice loop
     if args.voice:
         from stt import WhisperSTT
 
         stt = WhisperSTT(args.stt_model, args.language, args.stt_compute_type)
-    return chat, tts, robot_cm, stt
+        if args.mic == "sd":
+            from mic import SoundDeviceMic
+
+            recorder = SoundDeviceMic(args.mic_device)
+    return chat, tts, robot_cm, stt, recorder
 
 
 def output_audio(robot, args, samples, samplerate, index: int) -> None:
@@ -147,7 +162,7 @@ RESET_WORDS = {"reset", "リセット"}
 
 def run(args) -> int:
     is_japanese = args.language.lower().startswith("ja")
-    chat, tts, robot_cm, stt = build_components(args)
+    chat, tts, robot_cm, stt, recorder = build_components(args)
 
     with robot_cm as robot:
         print(
@@ -165,7 +180,7 @@ def run(args) -> int:
         describe_and_speak(robot, chat, tts, args, None, is_japanese)
 
         if args.voice:
-            _voice_loop(robot, chat, tts, stt, args, is_japanese)
+            _voice_loop(robot, chat, tts, stt, recorder or robot, args, is_japanese)
         else:
             _text_loop(robot, chat, tts, args, is_japanese)
 
@@ -199,7 +214,7 @@ def _text_loop(robot, chat, tts, args, is_japanese) -> None:
             logger.error("%s", exc)
 
 
-def _voice_loop(robot, chat, tts, stt, args, is_japanese) -> None:
+def _voice_loop(robot, chat, tts, stt, recorder, args, is_japanese) -> None:
     print(
         "\n🎤 声で話しかけてください（『終了』『バイバイ』で終わり、Ctrl+Cでも可）"
         if is_japanese
@@ -213,7 +228,7 @@ def _voice_loop(robot, chat, tts, stt, args, is_japanese) -> None:
                 if is_japanese else "\n🎤 Listening (auto-stops when you pause)...",
                 flush=True,
             )
-            audio, samplerate = robot.record_utterance(threshold=args.vad_threshold)
+            audio, samplerate = recorder.record_utterance(threshold=args.vad_threshold)
             if audio is None or len(audio) == 0:
                 continue
             user_text = stt.transcribe(audio, samplerate).strip()
