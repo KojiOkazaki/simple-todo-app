@@ -8,6 +8,12 @@ Run it on the machine the robot is plugged into:
     python app.py                 # interactive conversation
     python app.py --once          # describe the scene once and exit
     python app.py --question "机の上に何がある?"
+
+No robot/Ollama at hand? Try the offline demo, which mocks the camera,
+Gemma (via a fake Ollama client) and the speaker so you can watch the
+conversation loop run in the terminal:
+
+    python app.py --demo
 """
 
 from __future__ import annotations
@@ -16,12 +22,7 @@ import argparse
 import logging
 import sys
 
-import soundfile as sf
-
 from config import Config
-from gemma_client import GemmaVisionChat
-from robot import ReachyRobot
-from tts import build_tts
 
 logger = logging.getLogger("reachy_gemma_vision")
 
@@ -50,12 +51,37 @@ def parse_args(cfg: Config) -> argparse.Namespace:
     parser.add_argument(
         "--question", default=None, help="A single question to ask about the scene."
     )
+    parser.add_argument(
+        "--demo", action="store_true",
+        help="Offline demo with mocked camera/Gemma/speaker (no hardware needed).",
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable debug logging.")
     return parser.parse_args()
 
 
-def output_audio(robot: ReachyRobot, args, samples, samplerate, index: int) -> None:
+def build_components(args):
+    """Create (chat, tts, robot_cm). Real implementations, or demo fakes."""
+    if args.demo:
+        from demo_fakes import build_demo_components
+
+        return build_demo_components(args)
+
+    # Real implementations — imported lazily so the demo (and --help) don't
+    # require the heavy/optional dependencies to be installed.
+    from gemma_client import GemmaVisionChat
+    from robot import ReachyRobot
+    from tts import build_tts
+
+    chat = GemmaVisionChat(args.ollama_host, args.model, args.language)
+    tts = build_tts(args.tts_backend, args.piper_model)
+    robot_cm = ReachyRobot(args.media_backend, args.jpeg_quality)
+    return chat, tts, robot_cm
+
+
+def output_audio(robot, args, samples, samplerate, index: int) -> None:
     if args.audio_output == "file":
+        import soundfile as sf
+
         path = f"answer_{index:02d}.wav"
         sf.write(path, samples, samplerate)
         print(f"  (saved speech to {path})")
@@ -65,8 +91,7 @@ def output_audio(robot: ReachyRobot, args, samples, samplerate, index: int) -> N
 
 def run(args) -> int:
     is_japanese = args.language.lower().startswith("ja")
-    tts = build_tts(args.tts_backend, args.piper_model)
-    chat = GemmaVisionChat(args.ollama_host, args.model, args.language)
+    chat, tts, robot_cm = build_components(args)
 
     prompt_label = (
         "\n質問 (Enter=「今何が見える?」 / reset=記憶消去 / quit=終了) > "
@@ -76,8 +101,8 @@ def run(args) -> int:
     quit_words = {"quit", "exit", "q", "終了"}
     reset_words = {"reset", "リセット"}
 
-    with ReachyRobot(args.media_backend, args.jpeg_quality) as robot:
-        print("Reachy Mini + Gemma 4 ready." if not is_japanese else "Reachy Mini + Gemma 4 起動しました。")
+    with robot_cm as robot:
+        print("Reachy Mini + Gemma 4 起動しました。" if is_japanese else "Reachy Mini + Gemma 4 ready.")
 
         index = 0
         # Single-shot modes: --once or a one-off --question.

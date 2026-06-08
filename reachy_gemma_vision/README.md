@@ -71,6 +71,9 @@ python app.py --question "机の上に何がありますか？"
 
 # スピーカーが無い環境でのテスト（音声を answer_NN.wav に保存）
 python app.py --audio-output file --once
+
+# 実機・Ollama 無しのオフラインデモ（カメラ/Gemma/スピーカーをモック）
+python app.py --demo
 ```
 
 対話モードのコマンド:
