@@ -14,7 +14,7 @@ Reachy Mini カメラ ──▶ JPEG ──▶ Gemma 4 (Ollama) ──▶ テキ
 |------|----------|
 | カメラ映像取得 | `reachy_mini` SDK (`mini.media.get_frame()`) |
 | 画像認識・説明生成 | ローカル Gemma 4（[Ollama](https://ollama.com) 経由） |
-| 音声合成 (TTS) | Piper（推奨 / 日本語対応）または pyttsx3（フォールバック） |
+| 音声合成 (TTS) | VOICEVOX（ずんだもん等・既定）/ macOS `say` / Piper / pyttsx3 |
 | 音声発話 | `reachy_mini` SDK (`mini.media.push_audio_sample()`) |
 
 ## セットアップ
@@ -46,16 +46,24 @@ pip install -r requirements.txt
 
 ### 4. TTS（音声合成）
 
-**Piper（推奨）** — 高品質でローカル動作、日本語音声あり。
+既定は **VOICEVOX**（ずんだもん等の高品質な日本語音声、完全ローカル）です。
+
+1. [VOICEVOX](https://voicevox.hiroshiba.jp/) アプリをダウンロードして起動（HTTP API `http://127.0.0.1:50021` が立ち上がります）。
+2. そのまま `python app.py` を実行すると、既定の話者 **ずんだもん(ノーマル, id=3)** で発話します。
+
+話者を変えたい場合:
 
 ```bash
-pip install piper-tts
-# 日本語の音声モデル(.onnx + .onnx.json)をダウンロード
-#   https://huggingface.co/rhasspy/piper-voices （ja_JP/ 配下）
-export PIPER_MODEL=/path/to/ja_JP-xxxx-medium.onnx
+python app.py --voicevox-speaker 2     # 四国めたん（ほか 8=春日部つむぎ 等）
 ```
 
-Piper が未設定・未導入の場合は、自動的に **pyttsx3**（モデル不要のオフライン TTS）にフォールバックします（品質は劣り、日本語はシステム音声に依存）。
+**代替バックエンド:**
+
+- `--tts-backend macos` … macOS 標準の `say`（日本語は Kyoko 等、追加DL不要）
+- `--tts-backend piper --piper-model /path/voice.onnx` … Piper 神経TTS
+- `--tts-backend pyttsx3` … OS標準エンジン（フォールバック）
+
+VOICEVOX に接続できない場合は、自動的に macOS の `say`（Mac以外では pyttsx3）にフォールバックします。
 
 ## 使い方
 
@@ -90,7 +98,10 @@ python app.py --demo
 | `GEMMA_MODEL` | `gemma4:e4b` | 使用する Gemma 4 の Ollama タグ |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama サーバ URL |
 | `REACHY_LANG` | `ja` | 出力言語（`ja` / `en`） |
-| `TTS_BACKEND` | `piper` | `piper` または `pyttsx3` |
+| `TTS_BACKEND` | `voicevox` | `voicevox` / `macos` / `piper` / `pyttsx3` |
+| `VOICEVOX_HOST` | `http://127.0.0.1:50021` | VOICEVOX エンジンの URL |
+| `VOICEVOX_SPEAKER` | `3` | 話者 id（3=ずんだもん, 2=四国めたん 等） |
+| `MACOS_TTS_VOICE` | `Kyoko` | macOS `say` の音声 |
 | `PIPER_MODEL` | （空） | Piper 音声モデル(.onnx)のパス |
 | `AUDIO_OUTPUT` | `reachy` | `reachy`（実機発話）/ `file`（WAV保存） |
 | `REACHY_MEDIA_BACKEND` | `default` | Reachy のメディアバックエンド |

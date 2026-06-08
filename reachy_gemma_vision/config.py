@@ -9,7 +9,10 @@ back through the robot's speaker.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
+
+_IS_MACOS = sys.platform == "darwin"
 
 
 @dataclass
@@ -25,9 +28,20 @@ class Config:
     language: str = os.environ.get("REACHY_LANG", "ja")
 
     # --- Text-to-speech ------------------------------------------------------
-    tts_backend: str = os.environ.get("TTS_BACKEND", "piper")  # "piper" | "pyttsx3"
+    # Backends: "voicevox" (ずんだもん等, ローカルHTTP) | "macos" (`say`) |
+    #           "piper" | "pyttsx3"
+    # Default is VOICEVOX — fully local, high-quality Japanese voices.
+    tts_backend: str = os.environ.get("TTS_BACKEND", "voicevox")
+
+    # VOICEVOX engine (run the VOICEVOX app, which serves this HTTP API).
+    voicevox_host: str = os.environ.get("VOICEVOX_HOST", "http://127.0.0.1:50021")
+    # Speaker id. 3 = ずんだもん(ノーマル), 2 = 四国めたん, 8 = 春日部つむぎ ...
+    voicevox_speaker: int = int(os.environ.get("VOICEVOX_SPEAKER", "3"))
+
+    # macOS built-in `say` voice (used when tts_backend == "macos").
+    macos_voice: str = os.environ.get("MACOS_TTS_VOICE", "Kyoko")
+
     # Path to a Piper voice (.onnx). Required when tts_backend == "piper".
-    # Download a Japanese voice, e.g. from https://huggingface.co/rhasspy/piper-voices
     piper_model: str = os.environ.get("PIPER_MODEL", "")
 
     # --- Audio output target -------------------------------------------------

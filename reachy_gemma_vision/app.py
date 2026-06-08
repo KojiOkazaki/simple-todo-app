@@ -36,8 +36,15 @@ def parse_args(cfg: Config) -> argparse.Namespace:
     parser.add_argument("--ollama-host", default=cfg.ollama_host, help="Ollama base URL.")
     parser.add_argument("--language", default=cfg.language, help='"ja" or "en".')
     parser.add_argument(
-        "--tts-backend", default=cfg.tts_backend, choices=["piper", "pyttsx3"]
+        "--tts-backend", default=cfg.tts_backend,
+        choices=["voicevox", "macos", "piper", "pyttsx3"],
     )
+    parser.add_argument(
+        "--voicevox-speaker", type=int, default=cfg.voicevox_speaker,
+        help="VOICEVOX speaker id (3=ずんだもん, 2=四国めたん, ...).",
+    )
+    parser.add_argument("--voicevox-host", default=cfg.voicevox_host, help="VOICEVOX URL.")
+    parser.add_argument("--macos-voice", default=cfg.macos_voice, help="macOS `say` voice.")
     parser.add_argument("--piper-model", default=cfg.piper_model, help="Piper .onnx voice.")
     parser.add_argument(
         "--audio-output", default=cfg.audio_output, choices=["reachy", "file"],
@@ -73,7 +80,13 @@ def build_components(args):
     from tts import build_tts
 
     chat = GemmaVisionChat(args.ollama_host, args.model, args.language)
-    tts = build_tts(args.tts_backend, args.piper_model)
+    tts = build_tts(
+        args.tts_backend,
+        piper_model=args.piper_model,
+        macos_voice=args.macos_voice,
+        voicevox_host=args.voicevox_host,
+        voicevox_speaker=args.voicevox_speaker,
+    )
     robot_cm = ReachyRobot(args.media_backend, args.jpeg_quality)
     return chat, tts, robot_cm
 
